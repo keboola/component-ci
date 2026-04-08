@@ -1,0 +1,31 @@
+name: 'Deploy to KBC'
+description: 'Sets the release tag in Keboola Developer Portal'
+
+inputs:
+  app_id:
+    description: 'Component ID (e.g. kds-team.ex-airtable)'
+    required: true
+  vendor:
+    description: 'Developer Portal vendor name'
+    required: true
+  image_tag:
+    description: 'Image tag to deploy'
+    required: true
+  kbc_developerportal_username:
+    description: 'Developer Portal username'
+    required: true
+  kbc_developerportal_password:
+    description: 'Developer Portal password'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set Developer Portal Tag
+      uses: keboola/action-set-tag-developer-portal@master
+      with:
+        vendor: ${{ inputs.vendor }}
+        app_id: ${{ inputs.app_id }}
+        username: ${{ inputs.kbc_developerportal_username }}
+        password: ${{ inputs.kbc_developerportal_password }}
+        tag: ${{ inputs.image_tag }}

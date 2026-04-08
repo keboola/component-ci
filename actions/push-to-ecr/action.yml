@@ -1,0 +1,47 @@
+name: 'Push to ECR'
+description: 'Pushes Docker image to Keboola ECR'
+
+inputs:
+  app_id:
+    description: 'Component ID (e.g. kds-team.ex-airtable)'
+    required: true
+  vendor:
+    description: 'Developer Portal vendor name'
+    required: true
+  image_tag:
+    description: 'Image tag to push'
+    required: true
+  is_deploy_ready:
+    description: 'Whether to also push as latest'
+    required: false
+    default: 'false'
+  dockerhub_user:
+    description: 'Docker Hub username'
+    required: true
+  dockerhub_token:
+    description: 'Docker Hub token'
+    required: true
+  kbc_developerportal_username:
+    description: 'Developer Portal username'
+    required: true
+  kbc_developerportal_password:
+    description: 'Developer Portal password'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Docker login
+      shell: bash
+      run: docker login --username "${{ inputs.dockerhub_user }}" --password "${{ inputs.dockerhub_token }}"
+
+    - name: Push image to ECR
+      uses: keboola/action-push-to-ecr@master
+      with:
+        vendor: ${{ inputs.vendor }}
+        app_id: ${{ inputs.app_id }}
+        username: ${{ inputs.kbc_developerportal_username }}
+        password: ${{ inputs.kbc_developerportal_password }}
+        tag: ${{ inputs.image_tag }}
+        push_latest: ${{ inputs.is_deploy_ready }}
+        source_image: ${{ inputs.app_id }}
