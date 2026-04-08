@@ -27,6 +27,10 @@ inputs:
   kbc_developerportal_password:
     description: 'Developer Portal password'
     required: true
+  source_image:
+    description: 'Source Docker image name (defaults to app_id). Use when pushing the same image under different app IDs.'
+    required: false
+    default: ''
 
 runs:
   using: "composite"
@@ -44,4 +48,4 @@ runs:
         password: ${{ inputs.kbc_developerportal_password }}
         tag: ${{ inputs.image_tag }}
         push_latest: ${{ inputs.is_deploy_ready }}
-        source_image: ${{ inputs.app_id }}
+        source_image: ${{ inputs.source_image != '' && inputs.source_image || inputs.app_id }}
