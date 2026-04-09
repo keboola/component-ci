@@ -1,39 +1,39 @@
-name: 'Push to ECR'
-description: 'Pushes Docker image to Keboola ECR'
+name: Push to ECR
+description: Pushes Docker image to Keboola ECR
 
 inputs:
   app_id:
-    description: 'Component ID (e.g. kds-team.ex-airtable)'
+    description: Component ID (e.g. kds-team.ex-airtable)
     required: true
   vendor:
-    description: 'Developer Portal vendor name'
+    description: Developer Portal vendor name
     required: true
   image_tag:
-    description: 'Image tag to push'
+    description: Image tag to push
     required: true
   is_deploy_ready:
-    description: 'Whether to also push as latest'
+    description: Whether to also push as latest
     required: false
-    default: 'false'
+    default: "false"
   dockerhub_user:
-    description: 'Docker Hub username'
+    description: Docker Hub username
     required: true
   dockerhub_token:
-    description: 'Docker Hub token'
+    description: Docker Hub token
     required: true
   kbc_developerportal_username:
-    description: 'Developer Portal username'
+    description: Developer Portal username
     required: true
   kbc_developerportal_password:
-    description: 'Developer Portal password'
+    description: Developer Portal password
     required: true
   source_image:
-    description: 'Source Docker image name (defaults to app_id). Use when pushing the same image under different app IDs.'
+    description: Source Docker image name (defaults to app_id). Use when pushing the same image under different app IDs.
     required: false
-    default: ''
+    default: ""
 
 runs:
-  using: "composite"
+  using: composite
   steps:
     - name: Docker login
       shell: bash

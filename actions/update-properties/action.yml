@@ -1,26 +1,26 @@
-name: 'Update Developer Portal Properties'
-description: 'Updates component properties in Keboola Developer Portal'
+name: Update Developer Portal Properties
+description: Updates component properties in Keboola Developer Portal
 
 inputs:
   app_id:
-    description: 'Component ID (e.g. kds-team.ex-airtable)'
+    description: Component ID (e.g. kds-team.ex-airtable)
     required: true
   vendor:
-    description: 'Developer Portal vendor name'
+    description: Developer Portal vendor name
     required: true
   kbc_developerportal_username:
-    description: 'Developer Portal username'
+    description: Developer Portal username
     required: true
   kbc_developerportal_password:
-    description: 'Developer Portal password'
+    description: Developer Portal password
     required: true
   script_path:
-    description: 'Path to the update properties script'
+    description: Path to the update properties script
     required: false
-    default: 'scripts/developer_portal/update_properties.sh'
+    default: scripts/developer_portal/update_properties.sh
 
 runs:
-  using: "composite"
+  using: composite
   steps:
     - name: Update developer portal properties
       shell: bash
@@ -30,5 +30,5 @@ runs:
         KBC_DEVELOPERPORTAL_VENDOR: ${{ inputs.vendor }}
         KBC_DEVELOPERPORTAL_APP: ${{ inputs.app_id }}
       run: |
-        chmod +x ${{ inputs.script_path }}
-        ${{ inputs.script_path }}
+        chmod +x "${{ inputs.script_path }}"
+        "${{ inputs.script_path }}"
