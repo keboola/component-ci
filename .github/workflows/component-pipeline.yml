@@ -6,56 +6,56 @@ on:
       app_id:
         required: true
         type: string
-        description: 'Component ID in Keboola Developer Portal (e.g. kds-team.ex-airtable)'
+        description: Component ID in Keboola Developer Portal (e.g. kds-team.ex-airtable)
       vendor:
         required: true
         type: string
-        description: 'Developer Portal vendor name (e.g. kds-team, keboola)'
+        description: Developer Portal vendor name (e.g. kds-team, keboola)
       kbc_test_configs:
         required: false
         type: string
-        default: ''
-        description: 'Space-separated list of KBC test project config IDs'
+        default: ""
+        description: Space-separated list of KBC test project config IDs
       test_command:
         required: false
         type: string
-        default: 'python -m pytest tests/ --tb=short -q'
-        description: 'Test command to run inside the Docker container'
+        default: python -m pytest tests/ --tb=short -q
+        description: Test command to run inside the Docker container
       dockerfile:
         required: false
         type: string
-        default: './Dockerfile'
-        description: 'Path to the Dockerfile'
+        default: ./Dockerfile
+        description: Path to the Dockerfile
       docker_build_target:
         required: false
         type: string
-        default: ''
-        description: 'Docker build target for the production image (for multi-stage builds)'
+        default: ""
+        description: Docker build target for the production image (for multi-stage builds)
       test_build_target:
         required: false
         type: string
-        default: ''
-        description: 'Docker build target for the test image. When set, enables multi-stage mode: test image is built and tested separately, then production image is built for push.'
+        default: ""
+        description: Docker build target for the test image. When set, enables multi-stage mode.
       context:
         required: false
         type: string
-        default: '.'
-        description: 'Docker build context directory'
+        default: "."
+        description: Docker build context directory
       build_args:
         required: false
         type: string
-        default: ''
-        description: 'Docker build args (multiline KEY=VALUE)'
+        default: ""
+        description: Docker build args (multiline KEY=VALUE)
       update_properties_script:
         required: false
         type: string
-        default: 'scripts/developer_portal/update_properties.sh'
-        description: 'Path to the Developer Portal properties update script'
+        default: scripts/developer_portal/update_properties.sh
+        description: Path to the Developer Portal properties update script
       kbc_developerportal_username:
         required: false
         type: string
-        default: ''
-        description: 'Developer Portal username (overrides vars.KBC_DEVELOPERPORTAL_USERNAME)'
+        default: ""
+        description: Developer Portal username (overrides vars.KBC_DEVELOPERPORTAL_USERNAME)
 
 jobs:
   push_event_info:

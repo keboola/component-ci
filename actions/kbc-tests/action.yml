@@ -1,24 +1,24 @@
-name: 'KBC Tests'
-description: 'Runs KBC platform integration tests if configured'
+name: KBC Tests
+description: Runs KBC platform integration tests if configured
 
 inputs:
   app_id:
-    description: 'Component ID (e.g. kds-team.ex-airtable)'
+    description: Component ID (e.g. kds-team.ex-airtable)
     required: true
   image_tag:
-    description: 'Docker image tag to test'
+    description: Docker image tag to test
     required: true
   kbc_test_configs:
-    description: 'Space-separated list of KBC test config IDs'
+    description: Space-separated list of KBC test config IDs
     required: false
-    default: ''
+    default: ""
   kbc_storage_token:
-    description: 'KBC Storage API token'
+    description: KBC Storage API token
     required: false
-    default: ''
+    default: ""
 
 runs:
-  using: "composite"
+  using: composite
   steps:
     - name: Run KBC test jobs
       if: inputs.kbc_test_configs != '' && inputs.kbc_storage_token != ''
