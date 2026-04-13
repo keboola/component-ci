@@ -1,17 +1,17 @@
-name: 'Run Tests'
-description: 'Runs tests inside the Docker container'
+name: Run Tests
+description: Runs tests inside the Docker container
 
 inputs:
   app_id:
-    description: 'Component ID (e.g. kds-team.ex-airtable)'
+    description: Component ID (e.g. kds-team.ex-airtable)
     required: true
   test_command:
-    description: 'Test command to run inside the container'
+    description: Test command to run inside the container
     required: false
-    default: 'python -m pytest tests/ --tb=short -q'
+    default: python -m pytest tests/ --tb=short -q
 
 runs:
-  using: "composite"
+  using: composite
   steps:
     - name: Run tests
       shell: bash
