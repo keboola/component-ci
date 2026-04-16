@@ -16,6 +16,10 @@ inputs:
     description: KBC Storage API token
     required: false
     default: ""
+  kbc_host:
+    description: KBC Storage API host (e.g. connection.keboola.com)
+    required: false
+    default: "connection.keboola.com"
 
 runs:
   using: composite
@@ -24,6 +28,7 @@ runs:
       if: inputs.kbc_test_configs != '' && inputs.kbc_storage_token != ''
       uses: keboola/action-run-configs-parallel@master
       with:
+        host: ${{ inputs.kbc_host }}
         token: ${{ inputs.kbc_storage_token }}
         componentId: ${{ inputs.app_id }}
         tag: ${{ inputs.image_tag }}
