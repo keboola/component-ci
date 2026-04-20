@@ -53,6 +53,8 @@ jobs:
 | `build_args` | No | `""` | Docker build args (multiline) |
 | `update_properties_script` | No | `scripts/developer_portal/update_properties.sh` | Properties update script path |
 | `kbc_developerportal_username` | No | `vars.KBC_DEVELOPERPORTAL_USERNAME` | Developer Portal username override |
+| `tag` | No | `""` | Override the computed image tag (e.g. `0.0.1`) for one-off runs |
+| `update_properties` | No | `false` | Force the `update_properties` job regardless of deploy-readiness |
 
 ## Secrets
 
