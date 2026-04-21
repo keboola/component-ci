@@ -55,6 +55,7 @@ jobs:
 | `kbc_developerportal_username` | No | `vars.KBC_DEVELOPERPORTAL_USERNAME` | Developer Portal username override |
 | `tag` | No | `""` | Override the computed image tag (e.g. `0.0.1`) for one-off runs |
 | `update_properties` | No | `false` | Force the `update_properties` job regardless of deploy-readiness |
+| `deploy_ready` | No | `false` | Force deploy-ready behavior: push image as `latest` and run the `deploy` job regardless of the computed `is_deploy_ready` |
 
 ## Secrets
 

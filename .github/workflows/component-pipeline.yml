@@ -71,6 +71,11 @@ on:
         type: boolean
         default: false
         description: Force the update_properties job to run regardless of deploy-readiness
+      deploy_ready:
+        required: false
+        type: boolean
+        default: false
+        description: Force deploy-ready behavior (push image as `latest` and run the deploy job) regardless of the computed is_deploy_ready
 
 jobs:
   push_event_info:
@@ -179,7 +184,7 @@ jobs:
           app_id: ${{ inputs.app_id }}
           vendor: ${{ inputs.vendor }}
           image_tag: ${{ inputs.tag != '' && inputs.tag || needs.push_event_info.outputs.app_image_tag }}
-          is_deploy_ready: ${{ needs.push_event_info.outputs.is_deploy_ready }}
+          is_deploy_ready: ${{ (inputs.deploy_ready || needs.push_event_info.outputs.is_deploy_ready == 'true') && 'true' || 'false' }}
           dockerhub_user: ${{ secrets.DOCKERHUB_USER }}
           dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
           kbc_developerportal_username: ${{ inputs.kbc_developerportal_username != '' && inputs.kbc_developerportal_username || vars.KBC_DEVELOPERPORTAL_USERNAME }}
@@ -208,7 +213,7 @@ jobs:
       - push_event_info
       - push
       - tests_kbc
-    if: needs.push_event_info.outputs.is_deploy_ready == 'true'
+    if: needs.push_event_info.outputs.is_deploy_ready == 'true' || inputs.deploy_ready
     steps:
       - name: Deploy
         uses: keboola/component-ci/actions/deploy@master
@@ -226,7 +231,7 @@ jobs:
       - push_event_info
       - push
       - tests_kbc
-    if: needs.push_event_info.outputs.is_deploy_ready == 'true' || inputs.update_properties
+    if: needs.push_event_info.outputs.is_deploy_ready == 'true' || inputs.update_properties || inputs.deploy_ready
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
