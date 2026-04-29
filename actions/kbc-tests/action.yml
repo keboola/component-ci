@@ -24,6 +24,11 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: No KBC test configs configured
+      if: inputs.kbc_test_configs == '' || inputs.kbc_storage_token == ''
+      shell: bash
+      run: echo "kbc_test_configs or kbc_storage_token not set — skipping KBC platform integration tests."
+
     - name: Run KBC test jobs
       if: inputs.kbc_test_configs != '' && inputs.kbc_storage_token != ''
       uses: keboola/action-run-configs-parallel@master
