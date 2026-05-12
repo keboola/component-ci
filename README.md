@@ -39,6 +39,31 @@ jobs:
     secrets: inherit
 ```
 
+### Running tests via Docker Compose
+
+Opt into compose-based testing when the test container needs auxiliary services
+(e.g. an SFTP server, a database). The pipeline runs
+`docker compose up <service> --exit-code-from <service> --build` against the
+compose file in your repo. The production image pushed to ECR is still built
+separately from your `Dockerfile`.
+
+```yaml
+jobs:
+  ci:
+    uses: keboola/component-ci/.github/workflows/component-pipeline.yml@master
+    with:
+      app_id: "kds-team.ex-my-component"
+      vendor: "kds-team"
+      use_docker_compose: true
+      # Optional — defaults shown:
+      # compose_file: "docker-compose.yml"
+      # compose_service: "test"
+    secrets: inherit
+```
+
+In compose mode the `test_command` and `test_build_target` inputs are ignored —
+the test command and build live in the compose service definition.
+
 ## Reusable Workflow Inputs
 
 | Input | Required | Default | Description |
@@ -55,6 +80,9 @@ jobs:
 | `kbc_developerportal_username` | No | `vars.KBC_DEVELOPERPORTAL_USERNAME` | Developer Portal username override |
 | `tag` | No | `""` | Override the computed image tag (e.g. `0.0.1`) for one-off runs |
 | `update_properties` | No | `false` | Force the `update_properties` job regardless of deploy-readiness |
+| `use_docker_compose` | No | `false` | Run tests via `docker compose up` instead of `docker run` (enables test service dependencies like SFTP) |
+| `compose_file` | No | `docker-compose.yml` | Path to compose file (used only when `use_docker_compose` is true) |
+| `compose_service` | No | `test` | Name of the test service in the compose file (used only when `use_docker_compose` is true) |
 
 ## Secrets
 
