@@ -98,7 +98,7 @@ jobs:
       is_deploy_ready: ${{ steps.info.outputs.is_deploy_ready }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Get push event info
         id: info
@@ -125,7 +125,7 @@ jobs:
           fi
 
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Build Docker image
         uses: keboola/component-ci/actions/docker-build@master
@@ -162,10 +162,10 @@ jobs:
     if: ${{ inputs.use_docker_compose }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Run tests (docker compose)
         env:
@@ -187,7 +187,7 @@ jobs:
     if: ${{ always() && !failure() && !cancelled() && (inputs.test_build_target != '' || inputs.use_docker_compose) }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Build production image
         uses: keboola/component-ci/actions/docker-build@master
@@ -275,7 +275,7 @@ jobs:
     if: ${{ always() && !failure() && !cancelled() && (needs.push_event_info.outputs.is_deploy_ready == 'true' || inputs.update_properties) }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Update properties
         uses: keboola/component-ci/actions/update-properties@master
