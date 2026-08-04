@@ -106,7 +106,7 @@ For repos that need custom pipelines (multi-component, multi-identity, etc.), us
 Determines image tag, branch info, and deploy-readiness. Follows the Hyperion standard: semantic tags are `1.2.3` (no `v` prefix), branch builds get `-run_number` suffix, deploy requires default branch + semantic tag.
 
 ```yaml
-- uses: actions/checkout@v4
+- uses: actions/checkout@v7
 - uses: keboola/component-ci/actions/push-event-info@master
   id: info
 # Outputs: app_image_tag, is_semantic_tag, is_default_branch, is_deploy_ready
@@ -117,7 +117,7 @@ Determines image tag, branch info, and deploy-readiness. Follows the Hyperion st
 Builds Docker image and uploads as artifact.
 
 ```yaml
-- uses: actions/checkout@v4
+- uses: actions/checkout@v7
 - uses: keboola/component-ci/actions/docker-build@master
   with:
     app_id: "kds-team.ex-my-component"
@@ -194,7 +194,7 @@ Sets release tag in Developer Portal.
 Updates component properties in Developer Portal.
 
 ```yaml
-- uses: actions/checkout@v4
+- uses: actions/checkout@v7
 - uses: keboola/component-ci/actions/update-properties@master
   with:
     app_id: "kds-team.ex-my-component"
@@ -239,7 +239,7 @@ jobs:
       tag: ${{ steps.info.outputs.app_image_tag }}
       deploy: ${{ steps.info.outputs.is_deploy_ready }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: keboola/component-ci/actions/push-event-info@master
         id: info
 
@@ -247,7 +247,7 @@ jobs:
     needs: info
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: keboola/component-ci/actions/docker-build@master
         with:
           app_id: "keboola.ex-facebook-pages"
