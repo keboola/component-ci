@@ -97,6 +97,32 @@ All secrets should be set as **organization-level secrets** in the Keboola GitHu
 
 The `KBC_DEVELOPERPORTAL_USERNAME` should be an **org-level variable** (`vars.KBC_DEVELOPERPORTAL_USERNAME`).
 
+### External vendors (repositories outside the Keboola GitHub org)
+
+`secrets: inherit` only passes secrets when the caller workflow lives in the
+**same GitHub organization** as the reusable workflow. Repositories in other
+organizations must pass the secrets **explicitly** and provide the Developer
+Portal username via the `kbc_developerportal_username` input:
+
+```yaml
+jobs:
+  ci:
+    uses: keboola/component-ci/.github/workflows/component-pipeline.yml@master
+    with:
+      app_id: "my-vendor.ex-my-component"
+      vendor: "my-vendor"
+      kbc_developerportal_username: "my-vendor+github_actions"
+    secrets:
+      DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      KBC_DEVELOPERPORTAL_PASSWORD: ${{ secrets.KBC_DEVELOPERPORTAL_PASSWORD }}
+      KBC_STORAGE_TOKEN: ${{ secrets.KBC_STORAGE_TOKEN }}
+```
+
+Set these as repository (or your own organization's) secrets. Environment-scoped
+secrets are not picked up here — `on.workflow_call` does not support the
+`environment` keyword.
+
 ## Individual Actions
 
 For repos that need custom pipelines (multi-component, multi-identity, etc.), use the actions directly:

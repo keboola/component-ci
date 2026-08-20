@@ -86,6 +86,23 @@ on:
         type: string
         default: test
         description: Name of the test service in the compose file (used only when use_docker_compose is true)
+    # `secrets: inherit` only passes secrets when the caller is in the same
+    # GitHub organization. Callers in other organizations (external vendors)
+    # must pass secrets explicitly, which requires them to be declared here.
+    # All are optional so same-org callers can keep using `secrets: inherit`.
+    secrets:
+      DOCKERHUB_USER:
+        required: false
+        description: Docker Hub username for the ECR push
+      DOCKERHUB_TOKEN:
+        required: false
+        description: Docker Hub token for the ECR push
+      KBC_DEVELOPERPORTAL_PASSWORD:
+        required: false
+        description: Keboola Developer Portal password
+      KBC_STORAGE_TOKEN:
+        required: false
+        description: KBC Storage API token (needed only for KBC tests)
 
 jobs:
   push_event_info:
