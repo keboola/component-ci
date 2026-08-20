@@ -16,11 +16,13 @@ inputs:
     required: false
     default: "false"
   dockerhub_user:
-    description: Docker Hub username
-    required: true
+    description: Docker Hub username. Optional - when empty the Docker Hub login is skipped.
+    required: false
+    default: ""
   dockerhub_token:
-    description: Docker Hub token
-    required: true
+    description: Docker Hub token. Optional - when empty the Docker Hub login is skipped.
+    required: false
+    default: ""
   kbc_developerportal_username:
     description: Developer Portal username
     required: true
@@ -35,9 +37,18 @@ inputs:
 runs:
   using: composite
   steps:
+    # Docker Hub credentials are only used to lift anonymous pull rate limits.
+    # Callers outside the Keboola GitHub org typically do not have them, and
+    # `docker login` with empty credentials fails the whole step, so skip it.
     - name: Docker login
+      if: inputs.dockerhub_user != '' && inputs.dockerhub_token != ''
       shell: bash
       run: docker login --username "${{ inputs.dockerhub_user }}" --password "${{ inputs.dockerhub_token }}"
+
+    - name: Skipping Docker Hub login
+      if: inputs.dockerhub_user == '' || inputs.dockerhub_token == ''
+      shell: bash
+      run: echo "dockerhub_user/dockerhub_token not set - skipping Docker Hub login (anonymous pull rate limits apply)."
 
     - name: Push image to ECR
       uses: keboola/action-push-to-ecr@master
