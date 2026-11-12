@@ -108,3 +108,9 @@ jobs:
         env:
           BASE: ${{ needs.plan.outputs.base }}
         run: '"$KIT/tools/release" ci-check --base "$BASE"'
+      # only in the kit itself: a PR there can change the tools; a subfolder kit is its tested `main`
+      - if: inputs.kit-path == '.'
+        uses: astral-sh/setup-uv@v6
+      - name: Tests of the kit's tools
+        if: inputs.kit-path == '.'
+        run: uvx pytest@9.0.2 tools/tests -q -p no:cacheprovider
