@@ -7,7 +7,7 @@ This repo holds two separate things. Never change one for the other:
 | Part | Files | Used by |
 |------|-------|---------|
 | Per-repo pipeline | `.github/workflows/component-pipeline.yml`, `actions/` | One repository per component (sections below from Quick Start on) |
-| Monorepo workflows | `.github/workflows/monorepo-*.yml` | `keboola/components` and monorepos that hold its kit in a subfolder |
+| Monorepo workflows | `.github/workflows/monorepo-*.yml`, `actions/monorepo/` | `keboola/components` and monorepos that hold its kit in a subfolder |
 
 ## Monorepo workflows
 
@@ -20,6 +20,23 @@ which tool runs when. What the steps do: the kit's `docs/release.md`.
 | `monorepo-ci.yml` | `ci` on `pull_request` and `merge_group` | verify the changed folders, release rules |
 | `monorepo-test-image.yml` | `test-image` on push to branches other than `main` | build and push test images, run test configs |
 | `monorepo-publish.yml` | `publish` on push to `main` and `workflow_dispatch` | release raised versions; a dispatch is a dry run |
+
+Three workflows, because a monorepo runs them on three different events with different rules: the PR checks give the
+required check `ci-ok`, test images build on every branch push and are cancelled by the next push, and a release on
+`main` must never be cancelled. One caller file per workflow keeps those triggers and concurrency apart. (The per-repo
+pipeline needs one workflow: one push event drives test, build and deploy there.)
+
+The steps the jobs share are composite actions in `actions/monorepo/`; the workflows hold only the plans, the
+matrices and the order of steps:
+
+| Action | Does | Used by |
+|--------|------|---------|
+| `checkout` | the monorepo, then the kit's `main` into `kit_path` with the deploy key (when not `.`) | every job |
+| `build` | Docker Hub login, `tools/release build` as `<app>:latest` | test-image, publish |
+| `release-tag` | the version must be higher than the live tag (`tools/release publish-check`); a dry run only warns | publish, follow |
+| `ecr-tag` | ECR login, the tag must be `absent` (publish) or `present` (follow); a dry run only warns | publish, follow |
+| `set-tag` | set the tag in the Developer Portal, check it is live | publish, follow |
+| `sync-properties` | write `component_config/` to the Developer Portal | publish, follow |
 
 Inputs:
 
@@ -48,10 +65,12 @@ jobs:
 
 Callers use `@master`, as the kit follows its own `main`: a merge here reaches every monorepo at once, with no bump
 PRs. So treat a PR here like a change to the release workflows themselves:
-- **Test before merge:** point a caller branch at your branch (`@<branch>`), change one folder's code (never its
-  `version`), open it as a draft PR, and show `ci-ok` green and the test image built. Close that PR; never merge a
-  caller that points at a branch. A publish dry run cannot run from a branch (the release environments allow only
-  `main`); start one from `main` (Actions > publish > Run workflow) right after the merge.
+- **Test before merge:** the workflows call the actions at `@master`. On your branch, point them at the branch
+  (`actions/monorepo/<action>@<branch>`), and point a caller branch in a monorepo at it too. Change one folder's code
+  there (never its `version`), open it as a draft PR, and show `ci-ok` green and the test image built. Then close that
+  PR and set every ref back to `@master` in this PR: `grep -rn '@<branch>' .github actions` must find nothing.
+  A publish dry run cannot run from a branch (the release environments allow only `main`); start one from `main`
+  (Actions > publish > Run workflow) right after the merge.
 - **Kit first, then here:** the kit's tools move with the kit's `main`, the workflows with `master` here. A workflow
   change that needs a new or changed tool: merge the kit PR first (the tool must keep working with the workflows
   still on `master`), then the PR here. Removing a tool: first the PR here that stops calling it, then the kit PR.
