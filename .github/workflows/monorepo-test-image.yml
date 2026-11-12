@@ -1,0 +1,113 @@
+# Monorepo test images (keboola/components docs/release.md), as the per-repo pipeline did on every push: for each
+# folder whose code a branch changes and each app it publishes, build the image, push it to the app's ECR repo with the
+# tag <last branch segment>-<run number> (never semver, never `latest`), then run the folder's platform test
+# configurations with that tag when its ci-<folder> environment has KBC_TEST_PROJECT_CONFIGS and KBC_STORAGE_TOKEN.
+#
+# Caller: `test-image` on push to branches other than main and gh-readonly-queue/**, paths components/**, with
+# `secrets: inherit`, the permissions below and its own concurrency group. `kit-path` as in monorepo-ci.yml.
+# Credentials: the caller's repository variable KBC_DEVELOPERPORTAL_USERNAME_<VENDOR> and secret
+# KBC_DEVELOPERPORTAL_PASSWORD_<VENDOR> (KEBOOLA, KDS_TEAM). This workflow only pushes test tags and never sets a tag
+# in the Developer Portal.
+name: monorepo-test-image
+on:
+  workflow_call:
+    inputs:
+      kit-path:
+        description: Where the kit is; `.` in the kit itself, else a subfolder that gets the kit's `main`
+        type: string
+        default: "."
+permissions:
+  contents: read
+  actions: read
+env:
+  KIT: ${{ inputs.kit-path }}
+jobs:
+  plan:
+    if: github.event.deleted != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      envs: ${{ steps.plan.outputs.envs }}
+      tag: ${{ steps.plan.outputs.tag }}
+    steps:
+      - uses: keboola/component-ci/actions/monorepo/checkout@master
+        with:
+          kit_path: ${{ inputs.kit-path }}
+          kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
+          fetch_depth: "0"
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          matrix=$("$KIT/tools/release" image-plan --base origin/main)
+          count=$(jq '.include | length' <<<"$matrix")
+          if [ "$count" -gt 50 ]; then
+            echo "::error::$count apps to build; a test image is for one component, split the branch"
+            exit 1
+          fi
+          envs=$(gh api "repos/${{ github.repository }}/environments" --paginate --jq '[.environments[].name]' | jq -sc add)
+          tag="${GITHUB_REF_NAME##*/}-${{ github.run_number }}"
+          {
+            echo "matrix=$matrix"
+            echo "envs=$envs"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
+          echo "tag $tag for:"; jq -c '.include[]' <<<"$matrix"
+
+  image:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.matrix).include[0] != null
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # only an environment that exists: naming a missing one would create it
+    environment: ${{ contains(fromJSON(needs.plan.outputs.envs), format('ci-{0}', matrix.folder)) && format('ci-{0}', matrix.folder) || '' }}
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
+      PORTAL_USERNAME: ${{ matrix.vendor == 'keboola' && vars.KBC_DEVELOPERPORTAL_USERNAME_KEBOOLA || vars.KBC_DEVELOPERPORTAL_USERNAME_KDS_TEAM }}
+      PORTAL_PASSWORD: ${{ matrix.vendor == 'keboola' && secrets.KBC_DEVELOPERPORTAL_PASSWORD_KEBOOLA || secrets.KBC_DEVELOPERPORTAL_PASSWORD_KDS_TEAM }}
+      KBC_TEST_PROJECT_CONFIGS: ${{ vars.KBC_TEST_PROJECT_CONFIGS }}
+      KBC_STORAGE_TOKEN: ${{ secrets.KBC_STORAGE_TOKEN }}
+      KBC_HOST: ${{ vars.KBC_HOST || vars.KBC_URL || 'connection.keboola.com' }}
+    steps:
+      - name: Test-image credentials are set
+        run: |
+          if [ -z "$PORTAL_USERNAME" ] || [ -z "$PORTAL_PASSWORD" ]; then
+            echo "::error::set KBC_DEVELOPERPORTAL_USERNAME_<VENDOR> and KBC_DEVELOPERPORTAL_PASSWORD_<VENDOR> for ${{ matrix.vendor }}"
+            exit 1
+          fi
+      - uses: keboola/component-ci/actions/monorepo/checkout@master
+        with:
+          kit_path: ${{ inputs.kit-path }}
+          kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
+      - uses: keboola/component-ci/actions/monorepo/build@master
+        with:
+          kit_path: ${{ inputs.kit-path }}
+          folder: ${{ matrix.folder }}
+          app_id: ${{ matrix.app }}
+          vars_json: ${{ toJSON(vars) }}
+          secrets_json: ${{ toJSON(secrets) }}
+          dockerhub_user: ${{ secrets.DOCKERHUB_USER }}
+          dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Push ${{ needs.plan.outputs.tag }} to ECR
+        uses: keboola/action-push-to-ecr@030b1c82e3c3e3581e858dee90d51f5bf007c0ae
+        with:
+          vendor: ${{ matrix.vendor }}
+          app_id: ${{ matrix.app }}
+          username: ${{ env.PORTAL_USERNAME }}
+          password: ${{ env.PORTAL_PASSWORD }}
+          tag: ${{ env.TAG }}
+          source_image: ${{ matrix.app }}
+          push_latest: "false"
+      - name: Run the platform test configurations
+        if: env.KBC_TEST_PROJECT_CONFIGS != '' && env.KBC_STORAGE_TOKEN != ''
+        uses: keboola/action-run-configs-parallel@671d17478bda6e777b0e4675f8179091751e1008
+        with:
+          host: ${{ env.KBC_HOST }}
+          token: ${{ env.KBC_STORAGE_TOKEN }}
+          componentId: ${{ matrix.app }}
+          tag: ${{ env.TAG }}
+          configs: ${{ env.KBC_TEST_PROJECT_CONFIGS }}

@@ -1,0 +1,45 @@
+name: Monorepo sync properties
+description: >-
+  Write the folder's component_config/ to the app's Developer Portal properties. Empty files and empty {} schemas are
+  never in the list (`tools/release properties`).
+inputs:
+  kit_path:
+    description: Where the kit is
+    default: "."
+  folder:
+    description: Folder under components/
+    required: true
+  vendor:
+    description: Developer Portal vendor
+    required: true
+  app_id:
+    description: App ID
+    required: true
+  kbc_developerportal_username:
+    description: Developer Portal username
+    required: true
+  kbc_developerportal_password:
+    description: Developer Portal password
+    required: true
+  cli_image:
+    description: Developer Portal CLI image
+    default: quay.io/keboola/developer-portal-cli-v2:latest
+runs:
+  using: composite
+  steps:
+    - name: Sync component_config/ to the Developer Portal
+      shell: bash
+      env:
+        KIT: ${{ inputs.kit_path }}
+        FOLDER: ${{ inputs.folder }}
+        VENDOR: ${{ inputs.vendor }}
+        APP: ${{ inputs.app_id }}
+        CLI: ${{ inputs.cli_image }}
+        KBC_DEVELOPERPORTAL_USERNAME: ${{ inputs.kbc_developerportal_username }}
+        KBC_DEVELOPERPORTAL_PASSWORD: ${{ inputs.kbc_developerportal_password }}
+      run: |
+        "$KIT/tools/release" properties "$FOLDER" "$APP" | while IFS=$'\t' read -r prop path; do
+          echo "update $prop from $path"
+          docker run --rm -e KBC_DEVELOPERPORTAL_USERNAME -e KBC_DEVELOPERPORTAL_PASSWORD "$CLI" \
+            update-app-property "$VENDOR" "$APP" "$prop" --value="$(cat "$path")"
+        done

@@ -1,0 +1,62 @@
+name: Monorepo ECR tag check
+description: >-
+  Log in to the app's ECR repository with the vendor credentials and check whether the tag is there. `expect: absent`
+  before a push (ECR tags are mutable, so this is the only block against publishing a version twice); `expect: present`
+  for an app that runs another app's image. A dry run only warns.
+inputs:
+  vendor:
+    description: Developer Portal vendor
+    required: true
+  app_id:
+    description: App ID
+    required: true
+  tag:
+    description: Image tag
+    required: true
+  expect:
+    description: "`absent` or `present`"
+    required: true
+  hint:
+    description: What to do when the check fails
+    default: ""
+  dry_run:
+    description: "`true` on a dry run"
+    default: "false"
+  kbc_developerportal_username:
+    description: Developer Portal username
+    required: true
+  kbc_developerportal_password:
+    description: Developer Portal password
+    required: true
+  cli_image:
+    description: Developer Portal CLI image
+    default: quay.io/keboola/developer-portal-cli-v2:latest
+runs:
+  using: composite
+  steps:
+    - name: ECR tag check
+      shell: bash
+      env:
+        VENDOR: ${{ inputs.vendor }}
+        APP: ${{ inputs.app_id }}
+        TAG: ${{ inputs.tag }}
+        EXPECT: ${{ inputs.expect }}
+        HINT: ${{ inputs.hint }}
+        DRY_RUN: ${{ inputs.dry_run }}
+        CLI: ${{ inputs.cli_image }}
+        KBC_DEVELOPERPORTAL_USERNAME: ${{ inputs.kbc_developerportal_username }}
+        KBC_DEVELOPERPORTAL_PASSWORD: ${{ inputs.kbc_developerportal_password }}
+      run: |
+        docker pull -q "$CLI"
+        repository=$(docker run --rm -e KBC_DEVELOPERPORTAL_USERNAME -e KBC_DEVELOPERPORTAL_PASSWORD "$CLI" \
+          ecr:get-repository "$VENDOR" "$APP")
+        eval "$(docker run --rm -e KBC_DEVELOPERPORTAL_USERNAME -e KBC_DEVELOPERPORTAL_PASSWORD "$CLI" \
+          ecr:get-login "$VENDOR" "$APP")"
+        if docker manifest inspect "$repository:$TAG" > /dev/null 2>&1; then found=present; else found=absent; fi
+        if [ "$found" != "$EXPECT" ]; then
+          [ "$DRY_RUN" = "true" ] && level=warning || level=error
+          [ "$found" = present ] && what="already exists" || what="does not exist"
+          echo "::$level::$repository:$TAG $what; $HINT"
+          [ "$DRY_RUN" = "true" ] || exit 1
+        fi
+        echo "$APP: $repository:$TAG is $found"

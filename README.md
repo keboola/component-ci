@@ -2,6 +2,83 @@
 
 Shared GitHub Actions and reusable workflows for Keboola component CI/CD pipelines.
 
+This repo holds two separate things. Never change one for the other:
+
+| Part | Files | Used by |
+|------|-------|---------|
+| Per-repo pipeline | `.github/workflows/component-pipeline.yml`, `actions/` | One repository per component (sections below from Quick Start on) |
+| Monorepo workflows | `.github/workflows/monorepo-*.yml`, `actions/monorepo/` | `keboola/components` and monorepos that hold its kit in a subfolder |
+
+## Monorepo workflows
+
+The root CI of `keboola/components` (the kit) lives here once, so a CI change is one PR here instead of one copy per
+monorepo. The tools these workflows run (`tools/release`, `tools/component`) stay in the kit; the workflows say only
+which tool runs when. What the steps do: the kit's `docs/release.md`.
+
+| Workflow | Caller (in the monorepo) | Does |
+|----------|--------------------------|------|
+| `monorepo-ci.yml` | `ci` on `pull_request` and `merge_group` | verify the changed folders, release rules |
+| `monorepo-test-image.yml` | `test-image` on push to branches other than `main` | build and push test images, run test configs |
+| `monorepo-publish.yml` | `publish` on push to `main` and `workflow_dispatch` | release raised versions; a dispatch is a dry run |
+
+Three workflows, because a monorepo runs them on three different events with different rules: the PR checks give the
+required check `ci-ok`, test images build on every branch push and are cancelled by the next push, and a release on
+`main` must never be cancelled. One caller file per workflow keeps those triggers and concurrency apart. (The per-repo
+pipeline needs one workflow: one push event drives test, build and deploy there.)
+
+The steps the jobs share are composite actions in `actions/monorepo/`; the workflows hold only the plans, the
+matrices and the order of steps:
+
+| Action | Does | Used by |
+|--------|------|---------|
+| `checkout` | the monorepo, then the kit's `main` into `kit_path` with the deploy key (when not `.`) | every job |
+| `build` | Docker Hub login, `tools/release build` as `<app>:latest` | test-image, publish |
+| `release-tag` | the version must be higher than the live tag (`tools/release publish-check`); a dry run only warns | publish, follow |
+| `ecr-tag` | ECR login, the tag must be `absent` (publish) or `present` (follow); a dry run only warns | publish, follow |
+| `set-tag` | set the tag in the Developer Portal, check it is live | publish, follow |
+| `sync-properties` | write `component_config/` to the Developer Portal | publish, follow |
+
+Inputs:
+
+| Input | Workflows | Default | Description |
+|-------|-----------|---------|-------------|
+| `kit-path` | all | `.` | Where the kit is: `.` in the kit itself; a subfolder (e.g. `public`) gets `keboola/components` `main` checked out with the read-only deploy key in the caller's secret `PUBLIC_KIT_DEPLOY_KEY` |
+| `folder` | publish | `""` | Folder to dry-run on `workflow_dispatch` |
+
+A caller must:
+- pass `secrets: inherit`: the jobs read the caller's repository secrets and variables, and the `ci-<folder>` and
+  `release-<vendor>` environments of the caller repo;
+- grant `contents: read` and `actions: read` (publish: `contents: read`); a called workflow cannot raise them;
+- keep its own `concurrency` group; the workflows here set none, because a shared group cancels the caller;
+- keep the `ci-ok` job itself (`needs: ci`, fails unless `needs.ci.result` is `success`), so the required check of
+  its merge-queue ruleset keeps the name `ci-ok`. A job of a called workflow reports as `<caller job> / <job>`;
+- keep the `PUBLISH_ENABLED` switch on its `publish` job: the repo decides whether a push to `main` releases.
+
+```yaml
+jobs:
+  ci:
+    uses: keboola/component-ci/.github/workflows/monorepo-ci.yml@master
+    with:
+      kit-path: public   # omit in keboola/components
+    secrets: inherit
+```
+
+Callers use `@master` (decided 2026-11-12; no tag or SHA pin), as the kit follows its own `main`: a merge here reaches every monorepo at once, with no bump
+PRs. So treat a PR here like a change to the release workflows themselves:
+- **Test before merge:** the workflows call the actions at `@master`. On your branch, point them at the branch
+  (`actions/monorepo/<action>@<branch>`), and point a caller branch in a monorepo at it too. Change one folder's code
+  there (never its `version`), open it as a draft PR, and show `ci-ok` green and the test image built. Then close that
+  PR and set every ref back to `@master` in this PR: `grep -rn '@<branch>' .github actions` must find nothing.
+  A publish dry run cannot run from a branch (the release environments allow only `main`); start one from `main`
+  (Actions > publish > Run workflow) right after the merge.
+- **Kit first, then here:** the kit's tools move with the kit's `main`, the workflows with `master` here. A workflow
+  change that needs a new or changed tool: merge the kit PR first (the tool must keep working with the workflows
+  still on `master`), then the PR here. Removing a tool: first the PR here that stops calling it, then the kit PR.
+- **Trust:** whoever can merge here changes what runs with the monorepos' release credentials. Release credentials
+  still come only from environments that allow `main` of the caller repo.
+- **A broken file here stops both monorepos:** a workflow that fails to start gives no `ci-ok`, so PRs and the merge
+  queues of both repos wait. Fix forward or revert here; nothing in the monorepos catches it first.
+
 ## Quick Start (Standard Components)
 
 Replace your entire `push.yml` with:

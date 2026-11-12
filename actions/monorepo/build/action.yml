@@ -1,0 +1,45 @@
+name: Monorepo build
+description: >-
+  Build one app's image with the kit's `tools/release build` as `<app>:latest`. Build inputs come from the folder's
+  component.yml `build:`; only the names it declares reach the build.
+inputs:
+  kit_path:
+    description: Where the kit is
+    default: "."
+  folder:
+    description: Folder under components/
+    required: true
+  app_id:
+    description: App to build
+    required: true
+  vars_json:
+    description: toJSON(vars) of the job (build inputs are picked from it)
+    default: "{}"
+  secrets_json:
+    description: toJSON(secrets) of the job (build inputs are picked from it)
+    default: "{}"
+  dockerhub_user:
+    description: Docker Hub user (pull limits); no login when empty
+    default: ""
+  dockerhub_token:
+    description: Docker Hub token
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Docker Hub login (pull limits)
+      if: inputs.dockerhub_user != ''
+      shell: bash
+      env:
+        DOCKERHUB_USER: ${{ inputs.dockerhub_user }}
+        DOCKERHUB_TOKEN: ${{ inputs.dockerhub_token }}
+      run: docker login --username "$DOCKERHUB_USER" --password-stdin <<<"$DOCKERHUB_TOKEN"
+    - name: Build
+      shell: bash
+      env:
+        KIT: ${{ inputs.kit_path }}
+        FOLDER: ${{ inputs.folder }}
+        APP: ${{ inputs.app_id }}
+        VARS: ${{ inputs.vars_json }}
+        SECRETS: ${{ inputs.secrets_json }}
+      run: '"$KIT/tools/release" build "$FOLDER" "$APP" --tag "$APP:latest"'

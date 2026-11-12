@@ -1,0 +1,116 @@
+# Monorepo CI: verify every component a PR changes and enforce the release rules (keboola/components
+# docs/release.md). Not the per-repo component-pipeline.yml.
+#
+# Caller: `ci` on pull_request and merge_group, with `secrets: inherit`, the permissions below, its own concurrency
+# group and its own `ci-ok` job (`needs: ci`), which is the required check. `kit-path`: `.` in keboola/components, else
+# the subfolder that gets the kit's `main` (actions/monorepo/checkout).
+#
+# A folder with its own root workflow (.github/workflows/<folder>.yml) is tested there, not here. Folders whose change
+# is metadata only (component.yml, CHANGELOG, *.md, component_config/) are not verified. When a ci-<folder>
+# environment exists in the caller repo, its variables and secrets reach that folder's tests as environment variables.
+name: monorepo-ci
+on:
+  workflow_call:
+    inputs:
+      kit-path:
+        description: Where the kit is; `.` in the kit itself, else a subfolder that gets the kit's `main`
+        type: string
+        default: "."
+permissions:
+  contents: read
+  actions: read
+env:
+  KIT: ${{ inputs.kit-path }}
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      folders: ${{ steps.plan.outputs.folders }}
+      envs: ${{ steps.plan.outputs.envs }}
+      base: ${{ steps.plan.outputs.base }}
+    steps:
+      - uses: keboola/component-ci/actions/monorepo/checkout@master
+        with:
+          kit_path: ${{ inputs.kit-path }}
+          kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
+          fetch_depth: "0"
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+        run: |
+          # A PR runs on GitHub's merge of the PR into the current main; that merge's first parent is main. The event's
+          # pull_request.base.sha can be an older main, and then everything main got since would count as this PR's
+          # change: its folders get tested and release-checked as well.
+          if [ "$EVENT" = "merge_group" ]; then BASE=$GROUP_BASE; else BASE=$(git rev-parse HEAD^1); fi
+          folders=$("$KIT/tools/release" ci-plan --base "$BASE")
+          count=$(jq length <<<"$folders")
+          if [ "$count" -gt 200 ]; then
+            echo "::error::$count folders to verify; split the PR (a job matrix holds at most 256)"
+            exit 1
+          fi
+          envs=$(gh api "repos/${{ github.repository }}/environments" --paginate --jq '[.environments[].name]' | jq -sc add)
+          {
+            echo "base=$BASE"
+            echo "folders=$folders"
+            echo "envs=$envs"
+          } >> "$GITHUB_OUTPUT"
+          echo "verify: $folders"
+
+  verify:
+    needs: plan
+    if: needs.plan.outputs.folders != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        folder: ${{ fromJSON(needs.plan.outputs.folders) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # only an environment that exists: naming a missing one would create it
+    environment: ${{ contains(fromJSON(needs.plan.outputs.envs), format('ci-{0}', matrix.folder)) && format('ci-{0}', matrix.folder) || '' }}
+    steps:
+      - uses: keboola/component-ci/actions/monorepo/checkout@master
+        with:
+          kit_path: ${{ inputs.kit-path }}
+          kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
+          fetch_depth: "0"
+      - name: Environment variables and secrets for the tests
+        env:
+          VARS: ${{ toJSON(vars) }}
+          SECRETS: ${{ toJSON(secrets) }}
+        run: |
+          # values are written to GITHUB_ENV only; GitHub masks the secrets in the log. Org-wide keys, the release
+          # credentials, the kit deploy key and KIT (the tool path) never reach component tests.
+          for json in "$VARS" "$SECRETS"; do
+            jq -r 'to_entries[]
+              | select(.key | test("^(github_token|GITHUB_TOKEN|AI_CR_.*|GITOPS_.*|KBC_DEVELOPERPORTAL_.*|PUBLIC_KIT_.*|KIT)$") | not)
+              | "\(.key)<<EOF_CI_VALUE\n\(.value)\nEOF_CI_VALUE"' <<<"$json" >> "$GITHUB_ENV"
+          done
+      - uses: astral-sh/setup-uv@v6
+      - name: Verify ${{ matrix.folder }}
+        env:
+          FOLDER: ${{ matrix.folder }}
+        run: '"$KIT/tools/component" verify "$FOLDER"'
+
+  rules:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: keboola/component-ci/actions/monorepo/checkout@master
+        with:
+          kit_path: ${{ inputs.kit-path }}
+          kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
+          fetch_depth: "0"
+      - name: Release rules
+        env:
+          BASE: ${{ needs.plan.outputs.base }}
+        run: '"$KIT/tools/release" ci-check --base "$BASE"'
+      # only in the kit itself: a PR there can change the tools; a subfolder kit is its tested `main`
+      - if: inputs.kit-path == '.'
+        uses: astral-sh/setup-uv@v6
+      - name: Tests of the kit's tools
+        if: inputs.kit-path == '.'
+        run: uvx pytest@9.0.2 tools/tests -q -p no:cacheprovider
