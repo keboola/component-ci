@@ -1,0 +1,150 @@
+# Monorepo CI (keboola/components and any monorepo that holds its kit in a subfolder): verifies every component a PR
+# changes and enforces the release rules (keboola/components docs/release.md). Not the per-repo component-pipeline.yml.
+#
+# Caller: `ci` on pull_request and merge_group, with `secrets: inherit`, the permissions below and its own concurrency
+# group (not one here: a shared group cancels the caller). The caller keeps a job `ci-ok` that needs this one, so the
+# required check keeps its name. The tools (`tools/release`, `tools/component`) come from the kit at `kit-path`: `.`
+# when the caller is the kit, else that subfolder, checked out from keboola/components `main` with the read-only
+# deploy key in the caller's secret PUBLIC_KIT_DEPLOY_KEY.
+#
+# A folder with its own root workflow (.github/workflows/<folder>.yml) is tested there, not here. Folders whose change
+# is metadata only (component.yml, CHANGELOG, *.md, component_config/) are not verified. When a ci-<folder>
+# environment exists in the caller repo, its variables and secrets reach that folder's tests as environment variables.
+name: monorepo-ci
+on:
+  workflow_call:
+    inputs:
+      kit-path:
+        description: Where the kit is; `.` in the kit itself, else a subfolder that gets the kit's `main`
+        type: string
+        default: "."
+permissions:
+  contents: read
+  actions: read
+env:
+  KIT: ${{ inputs.kit-path }}
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      folders: ${{ steps.plan.outputs.folders }}
+      envs: ${{ steps.plan.outputs.envs }}
+      base: ${{ steps.plan.outputs.base }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Kit deploy key is set
+        if: inputs.kit-path != '.'
+        env:
+          KEY: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
+        run: |
+          [ -n "$KEY" ] || { echo "::error::set the secret PUBLIC_KIT_DEPLOY_KEY (read-only deploy key of keboola/components)"; exit 1; }
+      - name: Check out the kit
+        if: inputs.kit-path != '.'
+        uses: actions/checkout@v4
+        with:
+          repository: keboola/components
+          ref: main
+          path: ${{ inputs.kit-path }}
+          ssh-key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
+          persist-credentials: false
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+        run: |
+          echo "kit: $(git -C "$KIT" log --oneline -1)"
+          # A PR runs on GitHub's merge of the PR into the current main; that merge's first parent is main. The event's
+          # pull_request.base.sha can be an older main, and then everything main got since would count as this PR's
+          # change: its folders get tested and release-checked as well.
+          if [ "$EVENT" = "merge_group" ]; then BASE=$GROUP_BASE; else BASE=$(git rev-parse HEAD^1); fi
+          folders=$("$KIT/tools/release" ci-plan --base "$BASE")
+          count=$(jq length <<<"$folders")
+          if [ "$count" -gt 200 ]; then
+            echo "::error::$count folders to verify; split the PR (a job matrix holds at most 256)"
+            exit 1
+          fi
+          envs=$(gh api "repos/${{ github.repository }}/environments" --paginate --jq '[.environments[].name]' | jq -sc add)
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "folders=$folders" >> "$GITHUB_OUTPUT"
+          echo "envs=$envs" >> "$GITHUB_OUTPUT"
+          echo "verify: $folders"
+
+  verify:
+    needs: plan
+    if: needs.plan.outputs.folders != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        folder: ${{ fromJSON(needs.plan.outputs.folders) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # only an environment that exists: naming a missing one would create it
+    environment: ${{ contains(fromJSON(needs.plan.outputs.envs), format('ci-{0}', matrix.folder)) && format('ci-{0}', matrix.folder) || '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Kit deploy key is set
+        if: inputs.kit-path != '.'
+        env:
+          KEY: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
+        run: |
+          [ -n "$KEY" ] || { echo "::error::set the secret PUBLIC_KIT_DEPLOY_KEY (read-only deploy key of keboola/components)"; exit 1; }
+      - name: Check out the kit
+        if: inputs.kit-path != '.'
+        uses: actions/checkout@v4
+        with:
+          repository: keboola/components
+          ref: main
+          path: ${{ inputs.kit-path }}
+          ssh-key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
+          persist-credentials: false
+      - name: Environment variables and secrets for the tests
+        env:
+          VARS: ${{ toJSON(vars) }}
+          SECRETS: ${{ toJSON(secrets) }}
+        run: |
+          # values are written to GITHUB_ENV only; GitHub masks the secrets in the log. Org-wide keys, the release
+          # credentials and the kit deploy key never reach component tests.
+          for json in "$VARS" "$SECRETS"; do
+            jq -r 'to_entries[]
+              | select(.key | test("^(github_token|GITHUB_TOKEN|AI_CR_.*|GITOPS_.*|KBC_DEVELOPERPORTAL_.*|PUBLIC_KIT_.*)$") | not)
+              | "\(.key)<<EOF_CI_VALUE\n\(.value)\nEOF_CI_VALUE"' <<<"$json" >> "$GITHUB_ENV"
+          done
+      - uses: astral-sh/setup-uv@v6
+      - name: Verify ${{ matrix.folder }}
+        run: |
+          echo "kit: $(git -C "$KIT" log --oneline -1)"
+          "$KIT/tools/component" verify "${{ matrix.folder }}"
+
+  rules:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Kit deploy key is set
+        if: inputs.kit-path != '.'
+        env:
+          KEY: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
+        run: |
+          [ -n "$KEY" ] || { echo "::error::set the secret PUBLIC_KIT_DEPLOY_KEY (read-only deploy key of keboola/components)"; exit 1; }
+      - name: Check out the kit
+        if: inputs.kit-path != '.'
+        uses: actions/checkout@v4
+        with:
+          repository: keboola/components
+          ref: main
+          path: ${{ inputs.kit-path }}
+          ssh-key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
+          persist-credentials: false
+      - name: Release rules
+        run: |
+          echo "kit: $(git -C "$KIT" log --oneline -1)"
+          "$KIT/tools/release" ci-check --base "${{ needs.plan.outputs.base }}"
