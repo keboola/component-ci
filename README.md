@@ -63,7 +63,7 @@ jobs:
     secrets: inherit
 ```
 
-Callers use `@master`, as the kit follows its own `main`: a merge here reaches every monorepo at once, with no bump
+Callers use `@master` (decided 2026-11-12; no tag or SHA pin), as the kit follows its own `main`: a merge here reaches every monorepo at once, with no bump
 PRs. So treat a PR here like a change to the release workflows themselves:
 - **Test before merge:** the workflows call the actions at `@master`. On your branch, point them at the branch
   (`actions/monorepo/<action>@<branch>`), and point a caller branch in a monorepo at it too. Change one folder's code
