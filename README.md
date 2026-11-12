@@ -57,6 +57,8 @@ PRs. So treat a PR here like a change to the release workflows themselves:
   still on `master`), then the PR here. Removing a tool: first the PR here that stops calling it, then the kit PR.
 - **Trust:** whoever can merge here changes what runs with the monorepos' release credentials. Release credentials
   still come only from environments that allow `main` of the caller repo.
+- **A broken file here stops both monorepos:** a workflow that fails to start gives no `ci-ok`, so PRs and the merge
+  queues of both repos wait. Fix forward or revert here; nothing in the monorepos catches it first.
 
 ## Quick Start (Standard Components)
 
