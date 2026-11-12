@@ -48,8 +48,10 @@ jobs:
 
 Callers use `@master`, as the kit follows its own `main`: a merge here reaches every monorepo at once, with no bump
 PRs. So treat a PR here like a change to the release workflows themselves:
-- **Test before merge:** point a caller branch at your branch (`@<branch>`), open it as a draft PR, and show `ci-ok`
-  green, a test image built and a publish dry run. Close that PR; never merge a caller that points at a branch.
+- **Test before merge:** point a caller branch at your branch (`@<branch>`), change one folder's code (never its
+  `version`), open it as a draft PR, and show `ci-ok` green and the test image built. Close that PR; never merge a
+  caller that points at a branch. A publish dry run cannot run from a branch (the release environments allow only
+  `main`); start one from `main` (Actions > publish > Run workflow) right after the merge.
 - **Kit first, then here:** the kit's tools move with the kit's `main`, the workflows with `master` here. A workflow
   change that needs a new or changed tool: merge the kit PR first (the tool must keep working with the workflows
   still on `master`), then the PR here. Removing a tool: first the PR here that stops calling it, then the kit PR.

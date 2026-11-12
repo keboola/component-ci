@@ -3,7 +3,7 @@
 # with the tag <last branch segment>-<run number> (never semver, never `latest`), then run the folder's platform test
 # configurations with that tag when its ci-<folder> environment has KBC_TEST_PROJECT_CONFIGS and KBC_STORAGE_TOKEN.
 #
-# Caller: `test-image` on push to branches other than main and the merge queue, paths components/**, with
+# Caller: `test-image` on push to branches other than main and gh-readonly-queue/**, paths components/**, with
 # `secrets: inherit`, the permissions below and its own concurrency group. `kit-path` as in monorepo-ci.yml.
 # Credentials: the caller's repository variable KBC_DEVELOPERPORTAL_USERNAME_<VENDOR> and secret
 # KBC_DEVELOPERPORTAL_PASSWORD_<VENDOR> (KEBOOLA, KDS_TEAM). This workflow only pushes test tags and never sets a tag
