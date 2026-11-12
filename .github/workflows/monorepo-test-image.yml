@@ -1,6 +1,6 @@
-# Monorepo test images (keboola/components docs/release.md), the same as the per-repo pipeline did on every push: for
-# each folder whose code a branch changes and each app it publishes, build the image, push it to the app's ECR repo
-# with the tag <last branch segment>-<run number> (never semver, never `latest`), then run the folder's platform test
+# Monorepo test images (keboola/components docs/release.md), as the per-repo pipeline did on every push: for each
+# folder whose code a branch changes and each app it publishes, build the image, push it to the app's ECR repo with the
+# tag <last branch segment>-<run number> (never semver, never `latest`), then run the folder's platform test
 # configurations with that tag when its ci-<folder> environment has KBC_TEST_PROJECT_CONFIGS and KBC_STORAGE_TOKEN.
 #
 # Caller: `test-image` on push to branches other than main and gh-readonly-queue/**, paths components/**, with
@@ -31,29 +31,15 @@ jobs:
       envs: ${{ steps.plan.outputs.envs }}
       tag: ${{ steps.plan.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: keboola/component-ci/actions/monorepo/checkout@monorepo-workflows
         with:
-          fetch-depth: 0
-      - name: Kit deploy key is set
-        if: inputs.kit-path != '.'
-        env:
-          KEY: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
-        run: |
-          [ -n "$KEY" ] || { echo "::error::set the secret PUBLIC_KIT_DEPLOY_KEY (read-only deploy key of keboola/components)"; exit 1; }
-      - name: Check out the kit
-        if: inputs.kit-path != '.'
-        uses: actions/checkout@v4
-        with:
-          repository: keboola/components
-          ref: main
-          path: ${{ inputs.kit-path }}
-          ssh-key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
-          persist-credentials: false
+          kit_path: ${{ inputs.kit-path }}
+          kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
+          fetch_depth: "0"
       - id: plan
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "kit: $(git -C "$KIT" log --oneline -1)"
           matrix=$("$KIT/tools/release" image-plan --base origin/main)
           count=$(jq '.include | length' <<<"$matrix")
           if [ "$count" -gt 50 ]; then
@@ -62,9 +48,11 @@ jobs:
           fi
           envs=$(gh api "repos/${{ github.repository }}/environments" --paginate --jq '[.environments[].name]' | jq -sc add)
           tag="${GITHUB_REF_NAME##*/}-${{ github.run_number }}"
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-          echo "envs=$envs" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          {
+            echo "matrix=$matrix"
+            echo "envs=$envs"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
           echo "tag $tag for:"; jq -c '.include[]' <<<"$matrix"
 
   image:
@@ -78,7 +66,6 @@ jobs:
     # only an environment that exists: naming a missing one would create it
     environment: ${{ contains(fromJSON(needs.plan.outputs.envs), format('ci-{0}', matrix.folder)) && format('ci-{0}', matrix.folder) || '' }}
     env:
-      APP: ${{ matrix.app }}
       TAG: ${{ needs.plan.outputs.tag }}
       PORTAL_USERNAME: ${{ matrix.vendor == 'keboola' && vars.KBC_DEVELOPERPORTAL_USERNAME_KEBOOLA || vars.KBC_DEVELOPERPORTAL_USERNAME_KDS_TEAM }}
       PORTAL_PASSWORD: ${{ matrix.vendor == 'keboola' && secrets.KBC_DEVELOPERPORTAL_PASSWORD_KEBOOLA || secrets.KBC_DEVELOPERPORTAL_PASSWORD_KDS_TEAM }}
@@ -86,42 +73,25 @@ jobs:
       KBC_STORAGE_TOKEN: ${{ secrets.KBC_STORAGE_TOKEN }}
       KBC_HOST: ${{ vars.KBC_HOST || vars.KBC_URL || 'connection.keboola.com' }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Kit deploy key is set
-        if: inputs.kit-path != '.'
-        env:
-          KEY: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
-        run: |
-          [ -n "$KEY" ] || { echo "::error::set the secret PUBLIC_KIT_DEPLOY_KEY (read-only deploy key of keboola/components)"; exit 1; }
-      - name: Check out the kit
-        if: inputs.kit-path != '.'
-        uses: actions/checkout@v4
-        with:
-          repository: keboola/components
-          ref: main
-          path: ${{ inputs.kit-path }}
-          ssh-key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
-          persist-credentials: false
       - name: Test-image credentials are set
         run: |
           if [ -z "$PORTAL_USERNAME" ] || [ -z "$PORTAL_PASSWORD" ]; then
             echo "::error::set KBC_DEVELOPERPORTAL_USERNAME_<VENDOR> and KBC_DEVELOPERPORTAL_PASSWORD_<VENDOR> for ${{ matrix.vendor }}"
             exit 1
           fi
-      - name: Docker Hub login (pull limits)
-        env:
-          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        if: env.DOCKERHUB_USER != ''
-        run: docker login --username "$DOCKERHUB_USER" --password-stdin <<<"$DOCKERHUB_TOKEN"
-      - name: Build
-        env:
-          # build inputs come from the folder's component.yml `build:`; only the names it declares reach the build
-          VARS: ${{ toJSON(vars) }}
-          SECRETS: ${{ toJSON(secrets) }}
-        run: |
-          echo "kit: $(git -C "$KIT" log --oneline -1)"
-          "$KIT/tools/release" build "${{ matrix.folder }}" "$APP" --tag "$APP:latest"
+      - uses: keboola/component-ci/actions/monorepo/checkout@monorepo-workflows
+        with:
+          kit_path: ${{ inputs.kit-path }}
+          kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
+      - uses: keboola/component-ci/actions/monorepo/build@monorepo-workflows
+        with:
+          kit_path: ${{ inputs.kit-path }}
+          folder: ${{ matrix.folder }}
+          app_id: ${{ matrix.app }}
+          vars_json: ${{ toJSON(vars) }}
+          secrets_json: ${{ toJSON(secrets) }}
+          dockerhub_user: ${{ secrets.DOCKERHUB_USER }}
+          dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Push ${{ needs.plan.outputs.tag }} to ECR
         uses: keboola/action-push-to-ecr@030b1c82e3c3e3581e858dee90d51f5bf007c0ae
         with:

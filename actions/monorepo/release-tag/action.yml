@@ -1,0 +1,52 @@
+name: Monorepo release tag
+description: >-
+  The tag to publish: `version` when it is semver and higher than the app's live Developer Portal tag
+  (`tools/release publish-check`). A dry run continues with `version` and a warning; a real publish stops.
+inputs:
+  kit_path:
+    description: Where the kit is
+    default: "."
+  vendor:
+    description: Developer Portal vendor
+    required: true
+  app_id:
+    description: App ID
+    required: true
+  version:
+    description: Version from component.yml
+    required: true
+  dry_run:
+    description: "`true` on a dry run"
+    default: "false"
+  kbc_developerportal_username:
+    description: Developer Portal username
+    required: true
+  kbc_developerportal_password:
+    description: Developer Portal password
+    required: true
+outputs:
+  tag:
+    description: Tag to publish
+    value: ${{ steps.tag.outputs.tag }}
+runs:
+  using: composite
+  steps:
+    - id: tag
+      name: Version is higher than the live tag
+      shell: bash
+      env:
+        KIT: ${{ inputs.kit_path }}
+        VENDOR: ${{ inputs.vendor }}
+        APP: ${{ inputs.app_id }}
+        VERSION: ${{ inputs.version }}
+        DRY_RUN: ${{ inputs.dry_run }}
+        KBC_DEVELOPERPORTAL_USERNAME: ${{ inputs.kbc_developerportal_username }}
+        KBC_DEVELOPERPORTAL_PASSWORD: ${{ inputs.kbc_developerportal_password }}
+      run: |
+        if ! tag=$("$KIT/tools/release" publish-check "$VENDOR" "$APP" "$VERSION"); then
+          [ "$DRY_RUN" = "true" ] || exit 1
+          tag="$VERSION"
+          echo "::warning::dry run continues with $tag; a real publish stops here"
+        fi
+        echo "tag=$tag" >> "$GITHUB_OUTPUT"
+        echo "$APP: will publish $tag"

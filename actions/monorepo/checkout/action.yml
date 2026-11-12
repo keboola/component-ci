@@ -1,0 +1,42 @@
+name: Monorepo checkout
+description: >-
+  Check out the calling monorepo and, when its kit is in a subfolder, keboola/components `main` into that subfolder
+  with the read-only deploy key. Prints the kit commit the job uses.
+inputs:
+  kit_path:
+    description: Where the kit is; `.` in the kit itself, else a subfolder that gets the kit's `main`
+    default: "."
+  kit_ssh_key:
+    description: Private half of the read-only deploy key of keboola/components; required when kit_path is not `.`
+    default: ""
+  fetch_depth:
+    description: fetch-depth of the monorepo checkout (0 = full history)
+    default: "1"
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: ${{ inputs.fetch_depth }}
+    - name: Kit deploy key is set
+      if: inputs.kit_path != '.'
+      shell: bash
+      env:
+        KEY: ${{ inputs.kit_ssh_key }}
+      run: |
+        [ -n "$KEY" ] || { echo "::error::set the secret PUBLIC_KIT_DEPLOY_KEY (read-only deploy key of keboola/components)"; exit 1; }
+    - name: Check out the kit
+      if: inputs.kit_path != '.'
+      uses: actions/checkout@v4
+      with:
+        repository: keboola/components
+        ref: main
+        path: ${{ inputs.kit_path }}
+        ssh-key: ${{ inputs.kit_ssh_key }}
+        persist-credentials: false
+    - name: Kit commit
+      shell: bash
+      env:
+        KIT: ${{ inputs.kit_path }}
+      run: |
+        echo "kit: $(git -C "$KIT" log --oneline -1)"

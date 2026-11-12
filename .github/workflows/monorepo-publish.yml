@@ -2,7 +2,7 @@
 # version in component.yml rose on main (its own `version`, or the folder's): re-check the live tag and ECR, build, push
 # the semver image, set the tag in the Developer Portal, sync component_config/. Credentials come only from the
 # caller's release-<vendor> environments, which allow only `main`. An app with `imageFrom` runs another app's image:
-# job `follow` sets only its tag (after `publish` pushed the image).
+# job `follow` sets only its tag, after `publish` pushed the image.
 #
 # Caller: `publish` on push to main (paths components/*/component.yml) and workflow_dispatch, with `secrets: inherit`.
 # The caller decides whether a push publishes (its PUBLISH_ENABLED switch) and passes `folder` on a dispatch. A
@@ -24,6 +24,7 @@ permissions:
   contents: read
 env:
   KIT: ${{ inputs.kit-path }}
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' }}
 jobs:
   plan:
     runs-on: ubuntu-latest
@@ -32,39 +33,27 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       follow: ${{ steps.plan.outputs.follow }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: keboola/component-ci/actions/monorepo/checkout@monorepo-workflows
         with:
-          fetch-depth: 0
-      - name: Kit deploy key is set
-        if: inputs.kit-path != '.'
-        env:
-          KEY: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
-        run: |
-          [ -n "$KEY" ] || { echo "::error::set the secret PUBLIC_KIT_DEPLOY_KEY (read-only deploy key of keboola/components)"; exit 1; }
-      - name: Check out the kit
-        if: inputs.kit-path != '.'
-        uses: actions/checkout@v4
-        with:
-          repository: keboola/components
-          ref: main
-          path: ${{ inputs.kit-path }}
-          ssh-key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
-          persist-credentials: false
+          kit_path: ${{ inputs.kit-path }}
+          kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
+          fetch_depth: "0"
       - id: plan
         env:
           FOLDER: ${{ inputs.folder }}
           BEFORE: ${{ github.event.before }}
         run: |
-          echo "kit: $(git -C "$KIT" log --oneline -1)"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "$DRY_RUN" = "true" ]; then
             args=(--folder "$FOLDER")
           else
             args=(--before "$BEFORE" --after "$GITHUB_SHA")
           fi
           matrix=$("$KIT/tools/release" publish-plan "${args[@]}")
           follow=$("$KIT/tools/release" publish-plan "${args[@]}" --follow)
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-          echo "follow=$follow" >> "$GITHUB_OUTPUT"
+          {
+            echo "matrix=$matrix"
+            echo "follow=$follow"
+          } >> "$GITHUB_OUTPUT"
           echo "$matrix" | jq .
           echo "tag only (imageFrom):"; echo "$follow" | jq .
 
@@ -81,115 +70,77 @@ jobs:
     concurrency:
       group: publish-${{ matrix.app }}
       cancel-in-progress: false
-    env:
-      KBC_DEVELOPERPORTAL_USERNAME: ${{ vars.KBC_DEVELOPERPORTAL_USERNAME }}
-      KBC_DEVELOPERPORTAL_PASSWORD: ${{ secrets.KBC_DEVELOPERPORTAL_PASSWORD }}
-      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' }}
-      FOLDER: ${{ matrix.folder }}
-      APP: ${{ matrix.app }}
-      VENDOR: ${{ matrix.vendor }}
-      CLI: quay.io/keboola/developer-portal-cli-v2:latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Kit deploy key is set
-        if: inputs.kit-path != '.'
-        env:
-          KEY: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
-        run: |
-          [ -n "$KEY" ] || { echo "::error::set the secret PUBLIC_KIT_DEPLOY_KEY (read-only deploy key of keboola/components)"; exit 1; }
-      - name: Check out the kit
-        if: inputs.kit-path != '.'
-        uses: actions/checkout@v4
+      - uses: keboola/component-ci/actions/monorepo/checkout@monorepo-workflows
         with:
-          repository: keboola/components
-          ref: main
-          path: ${{ inputs.kit-path }}
-          ssh-key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
-          persist-credentials: false
-      - name: Version is higher than the live tag
-        id: tag
-        run: |
-          if ! tag=$("$KIT/tools/release" publish-check "$VENDOR" "$APP" "${{ matrix.version }}"); then
-            [ "$DRY_RUN" = "true" ] || exit 1
-            tag="${{ matrix.version }}"
-            echo "::warning::dry run continues with $tag; a real publish stops here"
-          fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "$APP: will publish $tag"
-      - name: The tag is not in ECR yet
-        env:
-          TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          # ECR tags are mutable, so this check is the only block against publishing a version twice
-          docker pull -q "$CLI"
-          repository=$(docker run --rm -e KBC_DEVELOPERPORTAL_USERNAME -e KBC_DEVELOPERPORTAL_PASSWORD "$CLI" \
-            ecr:get-repository "$VENDOR" "$APP")
-          eval "$(docker run --rm -e KBC_DEVELOPERPORTAL_USERNAME -e KBC_DEVELOPERPORTAL_PASSWORD "$CLI" \
-            ecr:get-login "$VENDOR" "$APP")"
-          if docker manifest inspect "$repository:$TAG" > /dev/null 2>&1; then
-            [ "$DRY_RUN" = "true" ] && level=warning || level=error
-            echo "::$level::$repository:$TAG already exists; raise the version in a new PR"
-            [ "$DRY_RUN" = "true" ] || exit 1
-          fi
-          echo "ECR login OK for $APP"
-      - name: Docker Hub login (pull limits)
-        env:
-          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        if: env.DOCKERHUB_USER != ''
-        run: docker login --username "$DOCKERHUB_USER" --password-stdin <<<"$DOCKERHUB_TOKEN"
-      - name: Build
-        env:
-          # build inputs come from the folder's component.yml `build:`; only the names it declares reach the build
-          VARS: ${{ toJSON(vars) }}
-          SECRETS: ${{ toJSON(secrets) }}
-        run: |
-          "$KIT/tools/release" build "$FOLDER" "$APP" --tag "$APP:latest"
+          kit_path: ${{ inputs.kit-path }}
+          kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
+      - id: tag
+        uses: keboola/component-ci/actions/monorepo/release-tag@monorepo-workflows
+        with:
+          kit_path: ${{ inputs.kit-path }}
+          vendor: ${{ matrix.vendor }}
+          app_id: ${{ matrix.app }}
+          version: ${{ matrix.version }}
+          dry_run: ${{ env.DRY_RUN }}
+          kbc_developerportal_username: ${{ vars.KBC_DEVELOPERPORTAL_USERNAME }}
+          kbc_developerportal_password: ${{ secrets.KBC_DEVELOPERPORTAL_PASSWORD }}
+      - uses: keboola/component-ci/actions/monorepo/ecr-tag@monorepo-workflows
+        with:
+          vendor: ${{ matrix.vendor }}
+          app_id: ${{ matrix.app }}
+          tag: ${{ steps.tag.outputs.tag }}
+          expect: absent
+          hint: raise the version in a new PR
+          dry_run: ${{ env.DRY_RUN }}
+          kbc_developerportal_username: ${{ vars.KBC_DEVELOPERPORTAL_USERNAME }}
+          kbc_developerportal_password: ${{ secrets.KBC_DEVELOPERPORTAL_PASSWORD }}
+      - uses: keboola/component-ci/actions/monorepo/build@monorepo-workflows
+        with:
+          kit_path: ${{ inputs.kit-path }}
+          folder: ${{ matrix.folder }}
+          app_id: ${{ matrix.app }}
+          vars_json: ${{ toJSON(vars) }}
+          secrets_json: ${{ toJSON(secrets) }}
+          dockerhub_user: ${{ secrets.DOCKERHUB_USER }}
+          dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: What a publish would sync
-        run: |
-          "$KIT/tools/release" properties "$FOLDER" "$APP"
+        env:
+          FOLDER: ${{ matrix.folder }}
+          APP: ${{ matrix.app }}
+        run: '"$KIT/tools/release" properties "$FOLDER" "$APP"'
       - name: Push the image to ECR
         if: env.DRY_RUN != 'true'
         uses: keboola/action-push-to-ecr@030b1c82e3c3e3581e858dee90d51f5bf007c0ae
         with:
           vendor: ${{ matrix.vendor }}
           app_id: ${{ matrix.app }}
-          username: ${{ env.KBC_DEVELOPERPORTAL_USERNAME }}
-          password: ${{ env.KBC_DEVELOPERPORTAL_PASSWORD }}
+          username: ${{ vars.KBC_DEVELOPERPORTAL_USERNAME }}
+          password: ${{ secrets.KBC_DEVELOPERPORTAL_PASSWORD }}
           tag: ${{ steps.tag.outputs.tag }}
           source_image: ${{ matrix.app }}
           push_latest: "true"
-      - name: Set the tag in the Developer Portal
-        if: env.DRY_RUN != 'true'
-        uses: keboola/action-set-tag-developer-portal@f1cb9641fbb4a144cf68170bc1e219dd99c29f96
+      - if: env.DRY_RUN != 'true'
+        uses: keboola/component-ci/actions/monorepo/set-tag@monorepo-workflows
         with:
+          kit_path: ${{ inputs.kit-path }}
           vendor: ${{ matrix.vendor }}
           app_id: ${{ matrix.app }}
-          username: ${{ env.KBC_DEVELOPERPORTAL_USERNAME }}
-          password: ${{ env.KBC_DEVELOPERPORTAL_PASSWORD }}
           tag: ${{ steps.tag.outputs.tag }}
-      - name: The live tag is the new one
-        if: env.DRY_RUN != 'true'
-        env:
-          TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          live=$("$KIT/tools/release" live-tag "$VENDOR" "$APP")
-          if [ "$live" != "$TAG" ]; then
-            echo "::error::live tag of $APP is '$live', expected '$TAG'"
-            exit 1
-          fi
-      - name: Sync component_config/ to the Developer Portal
-        if: env.DRY_RUN != 'true'
-        run: |
-          # empty files and empty {} schemas are never in this list (tools/release properties)
-          "$KIT/tools/release" properties "$FOLDER" "$APP" | while IFS=$'\t' read -r prop path; do
-            echo "update $prop from $path"
-            docker run --rm -e KBC_DEVELOPERPORTAL_USERNAME -e KBC_DEVELOPERPORTAL_PASSWORD "$CLI" \
-              update-app-property "$VENDOR" "$APP" "$prop" --value="$(cat "$path")"
-          done
+          kbc_developerportal_username: ${{ vars.KBC_DEVELOPERPORTAL_USERNAME }}
+          kbc_developerportal_password: ${{ secrets.KBC_DEVELOPERPORTAL_PASSWORD }}
+      - if: env.DRY_RUN != 'true'
+        uses: keboola/component-ci/actions/monorepo/sync-properties@monorepo-workflows
+        with:
+          kit_path: ${{ inputs.kit-path }}
+          folder: ${{ matrix.folder }}
+          vendor: ${{ matrix.vendor }}
+          app_id: ${{ matrix.app }}
+          kbc_developerportal_username: ${{ vars.KBC_DEVELOPERPORTAL_USERNAME }}
+          kbc_developerportal_password: ${{ secrets.KBC_DEVELOPERPORTAL_PASSWORD }}
 
-  # Apps with `imageFrom`: the image is the one `publish` pushed for the image app; only the tag moves, as the old
-  # repos did with a second "set tag" step. Runs after `publish`, also when it had nothing to build.
+  # Apps with `imageFrom`: the image is the one `publish` pushed for the image app; only the tag moves. Runs after
+  # `publish`, also when it had nothing to build.
   follow:
     needs: [plan, publish]
     if: ${{ !cancelled() && needs.plan.result == 'success' && fromJSON(needs.plan.outputs.follow).include[0] != null && needs.publish.result != 'failure' }}
@@ -202,87 +153,62 @@ jobs:
     concurrency:
       group: publish-${{ matrix.app }}
       cancel-in-progress: false
-    env:
-      KBC_DEVELOPERPORTAL_USERNAME: ${{ vars.KBC_DEVELOPERPORTAL_USERNAME }}
-      KBC_DEVELOPERPORTAL_PASSWORD: ${{ secrets.KBC_DEVELOPERPORTAL_PASSWORD }}
-      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' }}
-      FOLDER: ${{ matrix.folder }}
-      APP: ${{ matrix.app }}
-      VENDOR: ${{ matrix.vendor }}
-      CLI: quay.io/keboola/developer-portal-cli-v2:latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Kit deploy key is set
-        if: inputs.kit-path != '.'
-        env:
-          KEY: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
-        run: |
-          [ -n "$KEY" ] || { echo "::error::set the secret PUBLIC_KIT_DEPLOY_KEY (read-only deploy key of keboola/components)"; exit 1; }
-      - name: Check out the kit
-        if: inputs.kit-path != '.'
-        uses: actions/checkout@v4
+      - uses: keboola/component-ci/actions/monorepo/checkout@monorepo-workflows
         with:
-          repository: keboola/components
-          ref: main
-          path: ${{ inputs.kit-path }}
-          ssh-key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
-          persist-credentials: false
-      - name: Version is higher than the live tag and equals the image app's version
-        id: tag
+          kit_path: ${{ inputs.kit-path }}
+          kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
+      - name: Version equals the image app's version
+        env:
+          APP: ${{ matrix.app }}
+          IMAGE_APP: ${{ matrix.imageApp }}
+          VERSION: ${{ matrix.version }}
+          IMAGE_VERSION: ${{ matrix.imageVersion }}
         run: |
-          if [ "${{ matrix.version }}" != "${{ matrix.imageVersion }}" ]; then
-            echo "::error::$APP runs the image of ${{ matrix.imageApp }}: version ${{ matrix.version }} must equal ${{ matrix.imageVersion }}"
+          if [ "$VERSION" != "$IMAGE_VERSION" ]; then
+            echo "::error::$APP runs the image of $IMAGE_APP: version $VERSION must equal $IMAGE_VERSION"
             exit 1
           fi
-          if ! tag=$("$KIT/tools/release" publish-check "$VENDOR" "$APP" "${{ matrix.version }}"); then
-            [ "$DRY_RUN" = "true" ] || exit 1
-            tag="${{ matrix.version }}"
-            echo "::warning::dry run continues with $tag; a real publish stops here"
-          fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-      - name: The image is in ECR
-        env:
-          TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          # the app's repository is the image app's one; the tag must already be there (pushed by job publish)
-          docker pull -q "$CLI"
-          repository=$(docker run --rm -e KBC_DEVELOPERPORTAL_USERNAME -e KBC_DEVELOPERPORTAL_PASSWORD "$CLI" \
-            ecr:get-repository "$VENDOR" "$APP")
-          eval "$(docker run --rm -e KBC_DEVELOPERPORTAL_USERNAME -e KBC_DEVELOPERPORTAL_PASSWORD "$CLI" \
-            ecr:get-login "$VENDOR" "$APP")"
-          if ! docker manifest inspect "$repository:$TAG" > /dev/null 2>&1; then
-            [ "$DRY_RUN" = "true" ] && level=warning || level=error
-            echo "::$level::$repository:$TAG does not exist; ${{ matrix.imageApp }} must publish it first"
-            [ "$DRY_RUN" = "true" ] || exit 1
-          fi
-          echo "$APP: $repository:$TAG"
-      - name: What a publish would sync
-        run: |
-          "$KIT/tools/release" properties "$FOLDER" "$APP"
-      - name: Set the tag in the Developer Portal
-        if: env.DRY_RUN != 'true'
-        uses: keboola/action-set-tag-developer-portal@f1cb9641fbb4a144cf68170bc1e219dd99c29f96
+      - id: tag
+        uses: keboola/component-ci/actions/monorepo/release-tag@monorepo-workflows
+        with:
+          kit_path: ${{ inputs.kit-path }}
+          vendor: ${{ matrix.vendor }}
+          app_id: ${{ matrix.app }}
+          version: ${{ matrix.version }}
+          dry_run: ${{ env.DRY_RUN }}
+          kbc_developerportal_username: ${{ vars.KBC_DEVELOPERPORTAL_USERNAME }}
+          kbc_developerportal_password: ${{ secrets.KBC_DEVELOPERPORTAL_PASSWORD }}
+      - uses: keboola/component-ci/actions/monorepo/ecr-tag@monorepo-workflows
         with:
           vendor: ${{ matrix.vendor }}
           app_id: ${{ matrix.app }}
-          username: ${{ env.KBC_DEVELOPERPORTAL_USERNAME }}
-          password: ${{ env.KBC_DEVELOPERPORTAL_PASSWORD }}
           tag: ${{ steps.tag.outputs.tag }}
-      - name: The live tag is the new one
-        if: env.DRY_RUN != 'true'
+          expect: present
+          hint: ${{ matrix.imageApp }} must publish it first
+          dry_run: ${{ env.DRY_RUN }}
+          kbc_developerportal_username: ${{ vars.KBC_DEVELOPERPORTAL_USERNAME }}
+          kbc_developerportal_password: ${{ secrets.KBC_DEVELOPERPORTAL_PASSWORD }}
+      - name: What a publish would sync
         env:
-          TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          live=$("$KIT/tools/release" live-tag "$VENDOR" "$APP")
-          if [ "$live" != "$TAG" ]; then
-            echo "::error::live tag of $APP is '$live', expected '$TAG'"
-            exit 1
-          fi
-      - name: Sync component_config/ to the Developer Portal
-        if: env.DRY_RUN != 'true'
-        run: |
-          "$KIT/tools/release" properties "$FOLDER" "$APP" | while IFS=$'\t' read -r prop path; do
-            echo "update $prop from $path"
-            docker run --rm -e KBC_DEVELOPERPORTAL_USERNAME -e KBC_DEVELOPERPORTAL_PASSWORD "$CLI" \
-              update-app-property "$VENDOR" "$APP" "$prop" --value="$(cat "$path")"
-          done
+          FOLDER: ${{ matrix.folder }}
+          APP: ${{ matrix.app }}
+        run: '"$KIT/tools/release" properties "$FOLDER" "$APP"'
+      - if: env.DRY_RUN != 'true'
+        uses: keboola/component-ci/actions/monorepo/set-tag@monorepo-workflows
+        with:
+          kit_path: ${{ inputs.kit-path }}
+          vendor: ${{ matrix.vendor }}
+          app_id: ${{ matrix.app }}
+          tag: ${{ steps.tag.outputs.tag }}
+          kbc_developerportal_username: ${{ vars.KBC_DEVELOPERPORTAL_USERNAME }}
+          kbc_developerportal_password: ${{ secrets.KBC_DEVELOPERPORTAL_PASSWORD }}
+      - if: env.DRY_RUN != 'true'
+        uses: keboola/component-ci/actions/monorepo/sync-properties@monorepo-workflows
+        with:
+          kit_path: ${{ inputs.kit-path }}
+          folder: ${{ matrix.folder }}
+          vendor: ${{ matrix.vendor }}
+          app_id: ${{ matrix.app }}
+          kbc_developerportal_username: ${{ vars.KBC_DEVELOPERPORTAL_USERNAME }}
+          kbc_developerportal_password: ${{ secrets.KBC_DEVELOPERPORTAL_PASSWORD }}
