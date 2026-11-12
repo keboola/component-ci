@@ -33,7 +33,7 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       follow: ${{ steps.plan.outputs.follow }}
     steps:
-      - uses: keboola/component-ci/actions/monorepo/checkout@monorepo-workflows
+      - uses: keboola/component-ci/actions/monorepo/checkout@master
         with:
           kit_path: ${{ inputs.kit-path }}
           kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
@@ -71,12 +71,12 @@ jobs:
       group: publish-${{ matrix.app }}
       cancel-in-progress: false
     steps:
-      - uses: keboola/component-ci/actions/monorepo/checkout@monorepo-workflows
+      - uses: keboola/component-ci/actions/monorepo/checkout@master
         with:
           kit_path: ${{ inputs.kit-path }}
           kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
       - id: tag
-        uses: keboola/component-ci/actions/monorepo/release-tag@monorepo-workflows
+        uses: keboola/component-ci/actions/monorepo/release-tag@master
         with:
           kit_path: ${{ inputs.kit-path }}
           vendor: ${{ matrix.vendor }}
@@ -85,7 +85,7 @@ jobs:
           dry_run: ${{ env.DRY_RUN }}
           kbc_developerportal_username: ${{ vars.KBC_DEVELOPERPORTAL_USERNAME }}
           kbc_developerportal_password: ${{ secrets.KBC_DEVELOPERPORTAL_PASSWORD }}
-      - uses: keboola/component-ci/actions/monorepo/ecr-tag@monorepo-workflows
+      - uses: keboola/component-ci/actions/monorepo/ecr-tag@master
         with:
           vendor: ${{ matrix.vendor }}
           app_id: ${{ matrix.app }}
@@ -95,7 +95,7 @@ jobs:
           dry_run: ${{ env.DRY_RUN }}
           kbc_developerportal_username: ${{ vars.KBC_DEVELOPERPORTAL_USERNAME }}
           kbc_developerportal_password: ${{ secrets.KBC_DEVELOPERPORTAL_PASSWORD }}
-      - uses: keboola/component-ci/actions/monorepo/build@monorepo-workflows
+      - uses: keboola/component-ci/actions/monorepo/build@master
         with:
           kit_path: ${{ inputs.kit-path }}
           folder: ${{ matrix.folder }}
@@ -121,7 +121,7 @@ jobs:
           source_image: ${{ matrix.app }}
           push_latest: "true"
       - if: env.DRY_RUN != 'true'
-        uses: keboola/component-ci/actions/monorepo/set-tag@monorepo-workflows
+        uses: keboola/component-ci/actions/monorepo/set-tag@master
         with:
           kit_path: ${{ inputs.kit-path }}
           vendor: ${{ matrix.vendor }}
@@ -130,7 +130,7 @@ jobs:
           kbc_developerportal_username: ${{ vars.KBC_DEVELOPERPORTAL_USERNAME }}
           kbc_developerportal_password: ${{ secrets.KBC_DEVELOPERPORTAL_PASSWORD }}
       - if: env.DRY_RUN != 'true'
-        uses: keboola/component-ci/actions/monorepo/sync-properties@monorepo-workflows
+        uses: keboola/component-ci/actions/monorepo/sync-properties@master
         with:
           kit_path: ${{ inputs.kit-path }}
           folder: ${{ matrix.folder }}
@@ -154,7 +154,7 @@ jobs:
       group: publish-${{ matrix.app }}
       cancel-in-progress: false
     steps:
-      - uses: keboola/component-ci/actions/monorepo/checkout@monorepo-workflows
+      - uses: keboola/component-ci/actions/monorepo/checkout@master
         with:
           kit_path: ${{ inputs.kit-path }}
           kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
@@ -170,7 +170,7 @@ jobs:
             exit 1
           fi
       - id: tag
-        uses: keboola/component-ci/actions/monorepo/release-tag@monorepo-workflows
+        uses: keboola/component-ci/actions/monorepo/release-tag@master
         with:
           kit_path: ${{ inputs.kit-path }}
           vendor: ${{ matrix.vendor }}
@@ -179,7 +179,7 @@ jobs:
           dry_run: ${{ env.DRY_RUN }}
           kbc_developerportal_username: ${{ vars.KBC_DEVELOPERPORTAL_USERNAME }}
           kbc_developerportal_password: ${{ secrets.KBC_DEVELOPERPORTAL_PASSWORD }}
-      - uses: keboola/component-ci/actions/monorepo/ecr-tag@monorepo-workflows
+      - uses: keboola/component-ci/actions/monorepo/ecr-tag@master
         with:
           vendor: ${{ matrix.vendor }}
           app_id: ${{ matrix.app }}
@@ -195,7 +195,7 @@ jobs:
           APP: ${{ matrix.app }}
         run: '"$KIT/tools/release" properties "$FOLDER" "$APP"'
       - if: env.DRY_RUN != 'true'
-        uses: keboola/component-ci/actions/monorepo/set-tag@monorepo-workflows
+        uses: keboola/component-ci/actions/monorepo/set-tag@master
         with:
           kit_path: ${{ inputs.kit-path }}
           vendor: ${{ matrix.vendor }}
@@ -204,7 +204,7 @@ jobs:
           kbc_developerportal_username: ${{ vars.KBC_DEVELOPERPORTAL_USERNAME }}
           kbc_developerportal_password: ${{ secrets.KBC_DEVELOPERPORTAL_PASSWORD }}
       - if: env.DRY_RUN != 'true'
-        uses: keboola/component-ci/actions/monorepo/sync-properties@monorepo-workflows
+        uses: keboola/component-ci/actions/monorepo/sync-properties@master
         with:
           kit_path: ${{ inputs.kit-path }}
           folder: ${{ matrix.folder }}

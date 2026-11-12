@@ -30,7 +30,7 @@ jobs:
       envs: ${{ steps.plan.outputs.envs }}
       base: ${{ steps.plan.outputs.base }}
     steps:
-      - uses: keboola/component-ci/actions/monorepo/checkout@monorepo-workflows
+      - uses: keboola/component-ci/actions/monorepo/checkout@master
         with:
           kit_path: ${{ inputs.kit-path }}
           kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
@@ -71,7 +71,7 @@ jobs:
     # only an environment that exists: naming a missing one would create it
     environment: ${{ contains(fromJSON(needs.plan.outputs.envs), format('ci-{0}', matrix.folder)) && format('ci-{0}', matrix.folder) || '' }}
     steps:
-      - uses: keboola/component-ci/actions/monorepo/checkout@monorepo-workflows
+      - uses: keboola/component-ci/actions/monorepo/checkout@master
         with:
           kit_path: ${{ inputs.kit-path }}
           kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
@@ -99,7 +99,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: keboola/component-ci/actions/monorepo/checkout@monorepo-workflows
+      - uses: keboola/component-ci/actions/monorepo/checkout@master
         with:
           kit_path: ${{ inputs.kit-path }}
           kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}

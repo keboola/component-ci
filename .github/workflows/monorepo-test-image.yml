@@ -31,7 +31,7 @@ jobs:
       envs: ${{ steps.plan.outputs.envs }}
       tag: ${{ steps.plan.outputs.tag }}
     steps:
-      - uses: keboola/component-ci/actions/monorepo/checkout@monorepo-workflows
+      - uses: keboola/component-ci/actions/monorepo/checkout@master
         with:
           kit_path: ${{ inputs.kit-path }}
           kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
@@ -79,11 +79,11 @@ jobs:
             echo "::error::set KBC_DEVELOPERPORTAL_USERNAME_<VENDOR> and KBC_DEVELOPERPORTAL_PASSWORD_<VENDOR> for ${{ matrix.vendor }}"
             exit 1
           fi
-      - uses: keboola/component-ci/actions/monorepo/checkout@monorepo-workflows
+      - uses: keboola/component-ci/actions/monorepo/checkout@master
         with:
           kit_path: ${{ inputs.kit-path }}
           kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
-      - uses: keboola/component-ci/actions/monorepo/build@monorepo-workflows
+      - uses: keboola/component-ci/actions/monorepo/build@master
         with:
           kit_path: ${{ inputs.kit-path }}
           folder: ${{ matrix.folder }}
