@@ -112,7 +112,7 @@ jobs:
           # credentials and the kit deploy key never reach component tests.
           for json in "$VARS" "$SECRETS"; do
             jq -r 'to_entries[]
-              | select(.key | test("^(github_token|GITHUB_TOKEN|AI_CR_.*|GITOPS_.*|KBC_DEVELOPERPORTAL_.*|PUBLIC_KIT_.*)$") | not)
+              | select(.key | test("^(github_token|GITHUB_TOKEN|AI_CR_.*|GITOPS_.*|KBC_DEVELOPERPORTAL_.*|PUBLIC_KIT_.*|KIT)$") | not)
               | "\(.key)<<EOF_CI_VALUE\n\(.value)\nEOF_CI_VALUE"' <<<"$json" >> "$GITHUB_ENV"
           done
       - uses: astral-sh/setup-uv@v6
