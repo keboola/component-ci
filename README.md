@@ -74,6 +74,11 @@ PRs. So treat a PR here like a change to the release workflows themselves:
 - **Kit first, then here:** the kit's tools move with the kit's `main`, the workflows with `master` here. A workflow
   change that needs a new or changed tool: merge the kit PR first (the tool must keep working with the workflows
   still on `master`), then the PR here. Removing a tool: first the PR here that stops calling it, then the kit PR.
+- **An action change works with the previous workflow too:** a run loads the workflow once, at its start, but each
+  `actions/monorepo/<action>@master` when its job starts. A merge during a run (a publish waits in its concurrency
+  group, so this can take minutes) makes the old workflow call the new action. So a new input always has a default; a
+  renamed input keeps the old name working until a later PR removes it; new behaviour is a new input or a new
+  action, never a silent change of an existing one.
 - **Trust:** whoever can merge here changes what runs with the monorepos' release credentials. Release credentials
   still come only from environments that allow `main` of the caller repo.
 - **A broken file here stops both monorepos:** a workflow that fails to start gives no `ci-ok`, so PRs and the merge
