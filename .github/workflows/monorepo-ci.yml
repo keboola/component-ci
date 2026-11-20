@@ -107,6 +107,9 @@ jobs:
       - name: Release rules
         env:
           BASE: ${{ needs.plan.outputs.base }}
+          # the repository's environment names: the rules warn when a released folder with a ci-<folder>
+          # environment has no source for its secrets yet (the kit's docs/release.md)
+          CI_ENVIRONMENTS: ${{ needs.plan.outputs.envs }}
         run: '"$KIT/tools/release" ci-check --base "$BASE"'
       # only in the kit itself: a PR there can change the tools; a subfolder kit is its tested `main`
       - if: inputs.kit-path == '.'
