@@ -13,10 +13,10 @@ inputs:
     description: App to build
     required: true
   vars_json:
-    description: toJSON(vars) of the job (build inputs are picked from it)
+    description: JSON of the job's variables (build inputs are picked from it)
     default: "{}"
   secrets_json:
-    description: toJSON(secrets) of the job (build inputs are picked from it)
+    description: JSON of the secrets the build declares, {name -> value} (build inputs are picked from it)
     default: "{}"
   dockerhub_user:
     description: Docker Hub user (pull limits); no login when empty
