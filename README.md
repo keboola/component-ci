@@ -81,6 +81,8 @@ PRs. So treat a PR here like a change to the release workflows themselves:
   action, never a silent change of an existing one.
 - **Trust:** whoever can merge here changes what runs with the monorepos' release credentials. Release credentials
   still come only from environments that allow `main` of the caller repo.
+- **Never `pull_request_target`** in the monorepo workflows or their callers: it gives fork PRs the base repository's
+  secrets.
 - **A broken file here stops both monorepos:** a workflow that fails to start gives no `ci-ok`, so PRs and the merge
   queues of both repos wait. Fix forward or revert here; nothing in the monorepos catches it first.
 
