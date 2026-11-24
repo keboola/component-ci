@@ -7,7 +7,10 @@
 #
 # A folder with its own root workflow (.github/workflows/<folder>.yml) is tested there, not here. Folders whose change
 # is metadata only (component.yml, CHANGELOG, *.md, component_config/) are not verified. When a ci-<folder>
-# environment exists in the caller repo, its variables and secrets reach that folder's tests as environment variables.
+# environment exists in the caller repo, its variables, and the secrets the folder's component.yml names, reach that
+# folder's tests as environment variables. Each secret is looked up by its name, in a fixed number of slots (the kit's
+# `tools/release secret-names` allows at most that many): GitHub holds every run of a public repository that takes all
+# secrets at once.
 name: monorepo-ci
 on:
   workflow_call:
@@ -76,16 +79,39 @@ jobs:
           kit_path: ${{ inputs.kit-path }}
           kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
           fetch_depth: "0"
+      - id: names
+        name: Names of the secrets for the tests
+        env:
+          FOLDER: ${{ matrix.folder }}
+        run: echo "list=$("$KIT/tools/release" secret-names "$FOLDER")" >> "$GITHUB_OUTPUT"
       - name: Environment variables and secrets for the tests
         env:
           VARS: ${{ toJSON(vars) }}
-          SECRETS: ${{ toJSON(secrets) }}
+          NAMES: ${{ steps.names.outputs.list }}
+          S0: ${{ secrets[fromJSON(steps.names.outputs.list)[0]] }}
+          S1: ${{ secrets[fromJSON(steps.names.outputs.list)[1]] }}
+          S2: ${{ secrets[fromJSON(steps.names.outputs.list)[2]] }}
+          S3: ${{ secrets[fromJSON(steps.names.outputs.list)[3]] }}
+          S4: ${{ secrets[fromJSON(steps.names.outputs.list)[4]] }}
+          S5: ${{ secrets[fromJSON(steps.names.outputs.list)[5]] }}
+          S6: ${{ secrets[fromJSON(steps.names.outputs.list)[6]] }}
+          S7: ${{ secrets[fromJSON(steps.names.outputs.list)[7]] }}
+          S8: ${{ secrets[fromJSON(steps.names.outputs.list)[8]] }}
+          S9: ${{ secrets[fromJSON(steps.names.outputs.list)[9]] }}
+          S10: ${{ secrets[fromJSON(steps.names.outputs.list)[10]] }}
+          S11: ${{ secrets[fromJSON(steps.names.outputs.list)[11]] }}
+          S12: ${{ secrets[fromJSON(steps.names.outputs.list)[12]] }}
+          S13: ${{ secrets[fromJSON(steps.names.outputs.list)[13]] }}
+          S14: ${{ secrets[fromJSON(steps.names.outputs.list)[14]] }}
+          S15: ${{ secrets[fromJSON(steps.names.outputs.list)[15]] }}
         run: |
+          SECRETS=$(jq -nc --argjson names "$NAMES" '[range($names | length) as $i | {key: $names[$i], value: $ENV["S\($i)"]}] | map(select(.value != "")) | from_entries')
           # values are written to GITHUB_ENV only; GitHub masks the secrets in the log. Org-wide keys, the release
-          # credentials, the kit deploy key and KIT (the tool path) never reach component tests.
+          # credentials, the kit deploy key and KIT (the tool path) never reach component tests, in any case of the
+          # name: GitHub finds a secret by its name in any case.
           for json in "$VARS" "$SECRETS"; do
             jq -r 'to_entries[]
-              | select(.key | test("^(github_token|GITHUB_TOKEN|AI_CR_.*|GITOPS_.*|KBC_DEVELOPERPORTAL_.*|PUBLIC_KIT_.*|KIT)$") | not)
+              | select(.key | test("^(GITHUB_TOKEN|AI_CR_.*|GITOPS_.*|KBC_DEVELOPERPORTAL_.*|PUBLIC_KIT_.*|KIT)$"; "i") | not)
               | "\(.key)<<EOF_CI_VALUE\n\(.value)\nEOF_CI_VALUE"' <<<"$json" >> "$GITHUB_ENV"
           done
       - uses: astral-sh/setup-uv@v6
