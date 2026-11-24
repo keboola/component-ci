@@ -107,10 +107,11 @@ jobs:
         run: |
           SECRETS=$(jq -nc --argjson names "$NAMES" '[range($names | length) as $i | {key: $names[$i], value: $ENV["S\($i)"]}] | map(select(.value != "")) | from_entries')
           # values are written to GITHUB_ENV only; GitHub masks the secrets in the log. Org-wide keys, the release
-          # credentials, the kit deploy key and KIT (the tool path) never reach component tests.
+          # credentials, the kit deploy key and KIT (the tool path) never reach component tests, in any case of the
+          # name: GitHub finds a secret by its name in any case.
           for json in "$VARS" "$SECRETS"; do
             jq -r 'to_entries[]
-              | select(.key | test("^(github_token|GITHUB_TOKEN|AI_CR_.*|GITOPS_.*|KBC_DEVELOPERPORTAL_.*|PUBLIC_KIT_.*|KIT)$") | not)
+              | select(.key | test("^(GITHUB_TOKEN|AI_CR_.*|GITOPS_.*|KBC_DEVELOPERPORTAL_.*|PUBLIC_KIT_.*|KIT)$"; "i") | not)
               | "\(.key)<<EOF_CI_VALUE\n\(.value)\nEOF_CI_VALUE"' <<<"$json" >> "$GITHUB_ENV"
           done
       - uses: astral-sh/setup-uv@v6

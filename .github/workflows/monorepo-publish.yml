@@ -101,7 +101,8 @@ jobs:
           FOLDER: ${{ matrix.folder }}
           APP: ${{ matrix.app }}
         run: echo "list=$("$KIT/tools/release" secret-names "$FOLDER" --app "$APP")" >> "$GITHUB_OUTPUT"
-      # each secret looked up by its name: GitHub holds every run of a public repository that takes all secrets at once
+      # each secret looked up by its name: GitHub holds every run of a public repository that takes all secrets at once.
+      # Org-wide keys, the release credentials and the kit deploy key never reach a build, in any case of the name.
       - id: build-secrets
         name: Secrets for the build
         env:
@@ -123,7 +124,7 @@ jobs:
           S14: ${{ secrets[fromJSON(steps.names.outputs.list)[14]] }}
           S15: ${{ secrets[fromJSON(steps.names.outputs.list)[15]] }}
         run: |
-          echo "json=$(jq -nc --argjson names "$NAMES" '[range($names | length) as $i | {key: $names[$i], value: $ENV["S\($i)"]}] | map(select(.value != "")) | from_entries')" >> "$GITHUB_OUTPUT"
+          echo "json=$(jq -nc --argjson names "$NAMES" '[range($names | length) as $i | {key: $names[$i], value: $ENV["S\($i)"]}] | map(select(.value != "" and (.key | test("^(GITHUB_TOKEN|AI_CR_.*|GITOPS_.*|KBC_DEVELOPERPORTAL_.*|PUBLIC_KIT_.*|KIT)$"; "i") | not))) | from_entries')" >> "$GITHUB_OUTPUT"
       - uses: keboola/component-ci/actions/monorepo/build@master
         with:
           kit_path: ${{ inputs.kit-path }}
