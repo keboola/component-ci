@@ -45,13 +45,10 @@ jobs:
     # the report upload, the bot call and the result still run. A job that times out is CANCELLED and they are skipped.
     timeout-minutes: 100
     steps:
-      - uses: keboola/component-ci/actions/monorepo/checkout@master
-        with:
-          kit_path: ${{ inputs.kit-path }}
-          kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
-
       # A publish between "version raised on main" and "tag set in the portal" would show as drift.
       # The loop gives up after 60 minutes by itself; if the step still fails or times out, the check runs anyway.
+      # Before the checkout on purpose (it needs no files): a version merged and published during the wait is then
+      # in the checkout too, and not only in the portal.
       - name: Wait for running publish runs
         id: wait
         timeout-minutes: 65
@@ -75,6 +72,11 @@ jobs:
             echo "$open publish run(s) not finished; waiting"
             sleep 60
           done
+
+      - uses: keboola/component-ci/actions/monorepo/checkout@master
+        with:
+          kit_path: ${{ inputs.kit-path }}
+          kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
 
       # Always exits 0: the result goes to `steps.check.outputs.result` (ok, drift, error, or test for a forced red
       # branch run), the last step fails the job.
