@@ -8,7 +8,8 @@
 # The bot gets only a GitHub Actions OIDC token (audience `ticket-factory-drift`) and an empty body. It verifies the
 # token, takes the repository and run id from it and downloads the artifact itself. No secret is shared with it. It
 # writes to Linear only for a run of the caller's `main` with this file at `master`; a run from any other branch is a
-# test: the bot answers what it would do and writes nothing.
+# test: the bot answers what it would do and writes nothing. To test that path, a caller branch passes `test-red: true`
+# (ignored on `main`); never change a component's `version` for a test.
 #
 # Caller: `.github/workflows/drift.yml` (the bot checks this name) on `schedule` and `workflow_dispatch`, with
 # `secrets: inherit` and the permissions below; `id-token: write` is what lets the job ask for the OIDC token.
@@ -25,6 +26,12 @@ on:
         description: Where the kit is; `.` in the kit itself, else a subfolder that gets the kit's `main`
         type: string
         default: "."
+      test-red:
+        description: >-
+          Branch tests only: end the check red although nothing differs, so the report upload and the bot call can be
+          tested without changing any component. Ignored on `main`
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -64,7 +71,8 @@ jobs:
             sleep 60
           done
 
-      # Always exits 0: the result goes to `steps.check.outputs.result` (ok, drift, error), the last step fails the job.
+      # Always exits 0: the result goes to `steps.check.outputs.result` (ok, drift, error, or test for a forced red
+      # branch run), the last step fails the job.
       - name: Compare the live tags with the versions
         id: check
         env:
@@ -73,6 +81,7 @@ jobs:
           PORTAL_USERNAME_KDS_TEAM: ${{ vars.KBC_DEVELOPERPORTAL_USERNAME_KDS_TEAM }}
           PORTAL_PASSWORD_KDS_TEAM: ${{ secrets.KBC_DEVELOPERPORTAL_PASSWORD_KDS_TEAM }}
           PUBLISH_RUNNING: ${{ steps.wait.outputs.publish_running }}
+          TEST_RED: ${{ inputs.test-red }}
         run: |
           result=ok
           : > report.md
@@ -105,6 +114,14 @@ jobs:
             fi
           done
           rm -f vendor.md
+          if [ "$TEST_RED" = "true" ]; then
+            if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+              echo "::warning::test-red is ignored on main"
+            else
+              printf 'Test run (`test-red`): the result is forced to red. The tables above are the real check.\n' >> report.md
+              if [ "$result" = "ok" ]; then result=test; fi
+            fi
+          fi
           cat report.md >> "$GITHUB_STEP_SUMMARY"
           echo "result=$result" >> "$GITHUB_OUTPUT"
           echo "result: $result"
@@ -159,5 +176,6 @@ jobs:
           case "$RESULT" in
             ok) echo "every live tag equals its version" ;;
             drift) echo "::error::live tags differ from the versions, or apps could not be read; see the run summary"; exit 1 ;;
+            test) echo "::error::forced red run (test-red): nothing differs"; exit 1 ;;
             *) echo "::error::the drift check did not run completely; see the run summary and the log"; exit 1 ;;
           esac

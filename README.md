@@ -54,6 +54,7 @@ Inputs:
 |-------|-----------|---------|-------------|
 | `kit-path` | all | `.` | Where the kit is: `.` in the kit itself; a subfolder (e.g. `public`) gets `keboola/components` `main` checked out with the read-only deploy key in the caller's secret `PUBLIC_KIT_DEPLOY_KEY` |
 | `folder` | publish | `""` | Folder to dry-run on `workflow_dispatch` |
+| `test-red` | drift | `false` | Branch tests only: end the check red although nothing differs, to test the report upload and the bot call. Ignored on `main` |
 
 A caller must:
 - pass `secrets: inherit`: the jobs read the caller's repository secrets and variables, and the `ci-<folder>` and
@@ -86,9 +87,11 @@ PRs. So treat a PR here like a change to the release workflows themselves:
   PR and set every ref back to `@master` in this PR: `grep -rn '@<branch>' .github actions` must find nothing.
   A publish dry run cannot run from a branch (the release environments allow only `main`); start one from `main`
   (Actions > publish > Run workflow) right after the merge.
-  Drift: give the caller branch a temporary `push` trigger. A green run must not call the bot. For a red run, raise
-  one app's `version` on that branch only: the bot must answer `"mode":"test"` with `would_create` or `would_update`
-  and `"report":"read"` (the step log prints the answer), and no ticket may appear in Linear.
+  Drift: change no component and no `version`, in no test. On the caller branch give `drift.yml` a temporary `push`
+  trigger: that run must be green and must not call the bot. Then pass `test-red: true` (ignored on `main`): the run
+  ends red although nothing differs, uploads the report and calls the bot, which must answer `"mode":"test"` with
+  `would_create` or `would_update` and `"report":"read"` (the step log prints the answer); no ticket may appear in
+  Linear. Close that PR unmerged.
 - **Kit first, then here:** the kit's tools move with the kit's `main`, the workflows with `master` here. A workflow
   change that needs a new or changed tool: merge the kit PR first (the tool must keep working with the workflows
   still on `master`), then the PR here. Removing a tool: first the PR here that stops calling it, then the kit PR.
