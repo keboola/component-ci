@@ -41,7 +41,9 @@ env:
 jobs:
   drift:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # Above the sum of the step limits below, so only a step limit ever ends a step: a step that times out FAILS, and
+    # the report upload, the bot call and the result still run. A job that times out is CANCELLED and they are skipped.
+    timeout-minutes: 100
     steps:
       - uses: keboola/component-ci/actions/monorepo/checkout@master
         with:
@@ -49,8 +51,11 @@ jobs:
           kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
 
       # A publish between "version raised on main" and "tag set in the portal" would show as drift.
+      # The loop gives up after 60 minutes by itself; if the step still fails or times out, the check runs anyway.
       - name: Wait for running publish runs
         id: wait
+        timeout-minutes: 65
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -73,8 +78,11 @@ jobs:
 
       # Always exits 0: the result goes to `steps.check.outputs.result` (ok, drift, error, or test for a forced red
       # branch run), the last step fails the job.
+      # The report is written to a draft and renamed at the end: a step that times out leaves no report.md, so the
+      # bot never gets half a report as if it were complete.
       - name: Compare the live tags with the versions
         id: check
+        timeout-minutes: 20
         env:
           PORTAL_USERNAME_KEBOOLA: ${{ vars.KBC_DEVELOPERPORTAL_USERNAME_KEBOOLA }}
           PORTAL_PASSWORD_KEBOOLA: ${{ secrets.KBC_DEVELOPERPORTAL_PASSWORD_KEBOOLA }}
@@ -84,9 +92,10 @@ jobs:
           TEST_RED: ${{ inputs.test-red }}
         run: |
           result=ok
-          : > report.md
+          draft=report.draft.md
+          : > "$draft"
           if [ "$PUBLISH_RUNNING" = "true" ]; then
-            printf 'A publish run was still not finished when this check ran: a row below can be a release in progress.\n\n' >> report.md
+            printf 'A publish run was still not finished when this check ran: a row below can be a release in progress.\n\n' >> "$draft"
           fi
           for vendor in keboola kds-team; do
             suffix=$(tr 'a-z-' 'A-Z_' <<<"$vendor")
@@ -94,7 +103,7 @@ jobs:
             pass_var="PORTAL_PASSWORD_$suffix"
             if [ -z "${!user_var}" ] || [ -z "${!pass_var}" ]; then
               echo "::error::set KBC_DEVELOPERPORTAL_USERNAME_$suffix and KBC_DEVELOPERPORTAL_PASSWORD_$suffix"
-              printf '### Developer Portal drift: %s\n\nThe check did not run: the Developer Portal credentials of this vendor are not set in the repository.\n\n' "$vendor" >> report.md
+              printf '### Developer Portal drift: %s\n\nThe check did not run: the Developer Portal credentials of this vendor are not set in the repository.\n\n' "$vendor" >> "$draft"
               result=error
               continue
             fi
@@ -104,12 +113,12 @@ jobs:
             # exit 0 = all match, 1 = the report lists differences or unreadable apps; anything else, or no report,
             # means the check did not run (login failed, portal error, crash)
             if [ "$code" -le 1 ] && grep -q "^### Developer Portal drift: $vendor\$" vendor.md; then
-              cat vendor.md >> report.md
-              printf '\n' >> report.md
+              cat vendor.md >> "$draft"
+              printf '\n' >> "$draft"
               if [ "$code" = "1" ] && [ "$result" = "ok" ]; then result=drift; fi
             else
               echo "::error::tools/release drift --vendor $vendor did not run (exit $code)"
-              printf '### Developer Portal drift: %s\n\nThe check did not run (exit %s). Nothing was compared for this vendor; the run log has the reason.\n\n' "$vendor" "$code" >> report.md
+              printf '### Developer Portal drift: %s\n\nThe check did not run (exit %s). Nothing was compared for this vendor; the run log has the reason.\n\n' "$vendor" "$code" >> "$draft"
               result=error
             fi
           done
@@ -118,10 +127,11 @@ jobs:
             if [ "$GITHUB_REF" = "refs/heads/main" ]; then
               echo "::warning::test-red is ignored on main"
             else
-              printf 'Test run (`test-red`): the result is forced to red. The tables above are the real check.\n' >> report.md
+              printf 'Test run (`test-red`): the result is forced to red. The tables above are the real check.\n' >> "$draft"
               if [ "$result" = "ok" ]; then result=test; fi
             fi
           fi
+          mv "$draft" report.md
           cat report.md >> "$GITHUB_STEP_SUMMARY"
           echo "result=$result" >> "$GITHUB_OUTPUT"
           echo "result: $result"
@@ -139,6 +149,7 @@ jobs:
       # is still red and the report is in the summary.
       - name: Tell Component Factory Bot
         if: ${{ !cancelled() && (failure() || steps.check.outputs.result != 'ok') }}
+        timeout-minutes: 5
         env:
           BOT_URL: ${{ vars.TICKET_FACTORY_URL }}
           AUDIENCE: ticket-factory-drift
