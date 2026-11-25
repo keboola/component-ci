@@ -20,11 +20,21 @@ which tool runs when. What the steps do: the kit's `docs/release.md`.
 | `monorepo-ci.yml` | `ci` on `pull_request` and `merge_group` | verify the changed folders, release rules |
 | `monorepo-test-image.yml` | `test-image` on push to branches other than `main` | build and push test images, run test configs |
 | `monorepo-publish.yml` | `publish` on push to `main` and `workflow_dispatch` | release raised versions; a dispatch is a dry run |
+| `monorepo-drift.yml` | `drift` on `schedule` (weekly) and `workflow_dispatch` | live Developer Portal tags against the versions on `main`; a red run asks Component Factory Bot for a CFTL ticket |
 
-Three workflows, because a monorepo runs them on three different events with different rules: the PR checks give the
+Three workflows for CI and release, because a monorepo runs them on three different events with different rules: the PR checks give the
 required check `ci-ok`, test images build on every branch push and are cancelled by the next push, and a release on
 `main` must never be cancelled. One caller file per workflow keeps those triggers and concurrency apart. (The per-repo
 pipeline needs one workflow: one push event drives test, build and deploy there.)
+
+`monorepo-drift.yml` is apart from those three: it runs on a schedule, only reads the Developer Portal
+(`tools/release drift`) and is not a required check, so it never blocks a PR or a release. The report is in the run
+summary. Only a red run (a tag differs, an app cannot be read, the check could not run) uploads the report as the
+artifact `drift-report` and calls Component Factory Bot (`keboola/ticket-factory-agent`, `POST /github/drift`) with a
+GitHub Actions OIDC token and an empty body; the bot verifies the token, downloads the artifact itself and files or
+rewrites the CFTL ticket `Developer Portal drift: <repo>`. No secret is shared with the bot. A run from another branch
+than the caller's `main`, or with this file from another branch than `master`, is a test for the bot: it answers what
+it would do and writes nothing.
 
 The steps the jobs share are composite actions in `actions/monorepo/`; the workflows hold only the plans, the
 matrices and the order of steps:
@@ -44,15 +54,21 @@ Inputs:
 |-------|-----------|---------|-------------|
 | `kit-path` | all | `.` | Where the kit is: `.` in the kit itself; a subfolder (e.g. `public`) gets `keboola/components` `main` checked out with the read-only deploy key in the caller's secret `PUBLIC_KIT_DEPLOY_KEY` |
 | `folder` | publish | `""` | Folder to dry-run on `workflow_dispatch` |
+| `test-red` | drift | `false` | Branch tests only: end the check red although nothing differs, to test the report upload and the bot call. Ignored on `main` |
 
 A caller must:
 - pass `secrets: inherit`: the jobs read the caller's repository secrets and variables, and the `ci-<folder>` and
   `release-<vendor>` environments of the caller repo;
-- grant `contents: read` and `actions: read` (publish: `contents: read`); a called workflow cannot raise them;
+- grant `contents: read` and `actions: read` (publish: `contents: read`; drift: also `id-token: write`, which lets
+  the job ask GitHub for the OIDC token); a called workflow cannot raise them;
 - keep its own `concurrency` group; the workflows here set none, because a shared group cancels the caller;
 - keep the `ci-ok` job itself (`needs: ci`, fails unless `needs.ci.result` is `success`), so the required check of
   its merge-queue ruleset keeps the name `ci-ok`. A job of a called workflow reports as `<caller job> / <job>`;
-- keep the `PUBLISH_ENABLED` switch on its `publish` job: the repo decides whether a push to `main` releases.
+- keep the `PUBLISH_ENABLED` switch on its `publish` job: the repo decides whether a push to `main` releases;
+- for drift: name the caller file `.github/workflows/drift.yml` (the bot checks the name), trigger it only on
+  `schedule` and `workflow_dispatch`, and set the variable `TICKET_FACTORY_URL` (the bot's `https://` address, no
+  path; not a secret). Without the variable the run is still red, but no ticket is filed. It uses the same
+  `KBC_DEVELOPERPORTAL_USERNAME_<VENDOR>` / `KBC_DEVELOPERPORTAL_PASSWORD_<VENDOR>` as test-image.
 
 ```yaml
 jobs:
@@ -71,6 +87,11 @@ PRs. So treat a PR here like a change to the release workflows themselves:
   PR and set every ref back to `@master` in this PR: `grep -rn '@<branch>' .github actions` must find nothing.
   A publish dry run cannot run from a branch (the release environments allow only `main`); start one from `main`
   (Actions > publish > Run workflow) right after the merge.
+  Drift: change no component and no `version`, in no test. On the caller branch give `drift.yml` a temporary `push`
+  trigger: that run must be green and must not call the bot. Then pass `test-red: true` (ignored on `main`): the run
+  ends red although nothing differs, uploads the report and calls the bot, which must answer `"mode":"test"` with
+  `would_create` or `would_update` and `"report":"read"` (the step log prints the answer); no ticket may appear in
+  Linear. Close that PR unmerged.
 - **Kit first, then here:** the kit's tools move with the kit's `main`, the workflows with `master` here. A workflow
   change that needs a new or changed tool: merge the kit PR first (the tool must keep working with the workflows
   still on `master`), then the PR here. Removing a tool: first the PR here that stops calling it, then the kit PR.

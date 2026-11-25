@@ -1,0 +1,194 @@
+# Monorepo Developer Portal drift check (keboola/components docs/release.md, Drift). For each vendor: the live tag of
+# every published image app against `version` on the caller's branch (`tools/release drift`). The report goes to the
+# run summary. The run is red when a tag differs, an app cannot be read or the check could not run. Only a red run
+# uploads the report as the artifact `drift-report` and calls Component Factory Bot (keboola/ticket-factory-agent,
+# POST /github/drift), which files or rewrites the CFTL ticket `Developer Portal drift: <repo>`. A green run calls
+# nobody. Read only: nothing here writes to the Developer Portal.
+#
+# The bot gets only a GitHub Actions OIDC token (audience `ticket-factory-drift`) and an empty body. It verifies the
+# token, takes the repository and run id from it and downloads the artifact itself. No secret is shared with it. It
+# writes to Linear only for a run of the caller's `main` with this file at `master`; a run from any other branch is a
+# test: the bot answers what it would do and writes nothing. To test that path, a caller branch passes `test-red: true`
+# (ignored on `main`); never change a component's `version` for a test.
+#
+# Caller: `.github/workflows/drift.yml` (the bot checks this name) on `schedule` and `workflow_dispatch`, with
+# `secrets: inherit` and the permissions below; `id-token: write` is what lets the job ask for the OIDC token.
+# `kit-path` as in monorepo-ci.yml.
+# Credentials: the caller's repository variable KBC_DEVELOPERPORTAL_USERNAME_<VENDOR> and secret
+# KBC_DEVELOPERPORTAL_PASSWORD_<VENDOR> (KEBOOLA, KDS_TEAM), as in monorepo-test-image.yml: a vendor's login reads its
+# non-public apps too. The bot's address is the variable TICKET_FACTORY_URL (https, no path; not a secret); without
+# it the run is still red and the report is in the summary, but no ticket is filed.
+name: monorepo-drift
+on:
+  workflow_call:
+    inputs:
+      kit-path:
+        description: Where the kit is; `.` in the kit itself, else a subfolder that gets the kit's `main`
+        type: string
+        default: "."
+      test-red:
+        description: >-
+          Branch tests only: end the check red although nothing differs, so the report upload and the bot call can be
+          tested without changing any component. Ignored on `main`
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+env:
+  KIT: ${{ inputs.kit-path }}
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    # Above the sum of the step limits below, so only a step limit ever ends a step: a step that times out FAILS, and
+    # the report upload, the bot call and the result still run. A job that times out is CANCELLED and they are skipped.
+    timeout-minutes: 100
+    steps:
+      # A publish between "version raised on main" and "tag set in the portal" would show as drift.
+      # The loop gives up after 60 minutes by itself; if the step still fails or times out, the check runs anyway.
+      # Before the checkout on purpose (it needs no files): a version merged and published during the wait is then
+      # in the checkout too, and not only in the portal.
+      - name: Wait for running publish runs
+        id: wait
+        timeout-minutes: 65
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          deadline=$(( $(date +%s) + 3600 ))
+          while :; do
+            if ! open=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow publish.yml --limit 50 \
+                --json status --jq '[.[] | select(.status != "completed")] | length'); then
+              echo "::warning::could not list the publish runs; checking without waiting"
+              break
+            fi
+            [ "$open" = "0" ] && break
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::warning::$open publish run(s) still not finished after 60 minutes; checking anyway"
+              echo "publish_running=true" >> "$GITHUB_OUTPUT"
+              break
+            fi
+            echo "$open publish run(s) not finished; waiting"
+            sleep 60
+          done
+
+      - uses: keboola/component-ci/actions/monorepo/checkout@master
+        with:
+          kit_path: ${{ inputs.kit-path }}
+          kit_ssh_key: ${{ secrets.PUBLIC_KIT_DEPLOY_KEY }}
+
+      # Always exits 0: the result goes to `steps.check.outputs.result` (ok, drift, error, or test for a forced red
+      # branch run), the last step fails the job.
+      # The report is written to a draft and renamed at the end: a step that times out leaves no report.md, so the
+      # bot never gets half a report as if it were complete.
+      - name: Compare the live tags with the versions
+        id: check
+        timeout-minutes: 20
+        env:
+          PORTAL_USERNAME_KEBOOLA: ${{ vars.KBC_DEVELOPERPORTAL_USERNAME_KEBOOLA }}
+          PORTAL_PASSWORD_KEBOOLA: ${{ secrets.KBC_DEVELOPERPORTAL_PASSWORD_KEBOOLA }}
+          PORTAL_USERNAME_KDS_TEAM: ${{ vars.KBC_DEVELOPERPORTAL_USERNAME_KDS_TEAM }}
+          PORTAL_PASSWORD_KDS_TEAM: ${{ secrets.KBC_DEVELOPERPORTAL_PASSWORD_KDS_TEAM }}
+          PUBLISH_RUNNING: ${{ steps.wait.outputs.publish_running }}
+          TEST_RED: ${{ inputs.test-red }}
+        run: |
+          result=ok
+          draft=report.draft.md
+          : > "$draft"
+          if [ "$PUBLISH_RUNNING" = "true" ]; then
+            printf 'A publish run was still not finished when this check ran: a row below can be a release in progress.\n\n' >> "$draft"
+          fi
+          for vendor in keboola kds-team; do
+            suffix=$(tr 'a-z-' 'A-Z_' <<<"$vendor")
+            user_var="PORTAL_USERNAME_$suffix"
+            pass_var="PORTAL_PASSWORD_$suffix"
+            if [ -z "${!user_var}" ] || [ -z "${!pass_var}" ]; then
+              echo "::error::set KBC_DEVELOPERPORTAL_USERNAME_$suffix and KBC_DEVELOPERPORTAL_PASSWORD_$suffix"
+              printf '### Developer Portal drift: %s\n\nThe check did not run: the Developer Portal credentials of this vendor are not set in the repository.\n\n' "$vendor" >> "$draft"
+              result=error
+              continue
+            fi
+            code=0
+            KBC_DEVELOPERPORTAL_USERNAME="${!user_var}" KBC_DEVELOPERPORTAL_PASSWORD="${!pass_var}" \
+              "$KIT/tools/release" drift --vendor "$vendor" > vendor.md || code=$?
+            # exit 0 = all match, 1 = the report lists differences or unreadable apps; anything else, or no report,
+            # means the check did not run (login failed, portal error, crash)
+            if [ "$code" -le 1 ] && grep -q "^### Developer Portal drift: $vendor\$" vendor.md; then
+              cat vendor.md >> "$draft"
+              printf '\n' >> "$draft"
+              if [ "$code" = "1" ] && [ "$result" = "ok" ]; then result=drift; fi
+            else
+              echo "::error::tools/release drift --vendor $vendor did not run (exit $code)"
+              printf '### Developer Portal drift: %s\n\nThe check did not run (exit %s). Nothing was compared for this vendor; the run log has the reason.\n\n' "$vendor" "$code" >> "$draft"
+              result=error
+            fi
+          done
+          rm -f vendor.md
+          if [ "$TEST_RED" = "true" ]; then
+            if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+              echo "::warning::test-red is ignored on main"
+            else
+              printf 'Test run (`test-red`): the result is forced to red. The tables above are the real check.\n' >> "$draft"
+              if [ "$result" = "ok" ]; then result=test; fi
+            fi
+          fi
+          mv "$draft" report.md
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+          echo "result: $result"
+
+      - name: Upload the report for the bot
+        if: ${{ !cancelled() && (failure() || steps.check.outputs.result != 'ok') && hashFiles('report.md') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-report
+          path: report.md
+          retention-days: 7
+          if-no-files-found: ignore
+
+      # Never fails the job and never retries (a second call could file a second ticket): without the bot the run
+      # is still red and the report is in the summary.
+      - name: Tell Component Factory Bot
+        if: ${{ !cancelled() && (failure() || steps.check.outputs.result != 'ok') }}
+        timeout-minutes: 5
+        env:
+          BOT_URL: ${{ vars.TICKET_FACTORY_URL }}
+          AUDIENCE: ticket-factory-drift
+        run: |
+          case "$BOT_URL" in
+            https://*) ;;
+            "") echo "::warning::the variable TICKET_FACTORY_URL is not set; no ticket is filed"; exit 0 ;;
+            *) echo "::warning::TICKET_FACTORY_URL must start with https://; no ticket is filed"; exit 0 ;;
+          esac
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "::warning::no OIDC token for this job: the caller must grant id-token: write; no ticket is filed"
+            exit 0
+          fi
+          token=$(curl -sS --fail --max-time 30 -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$AUDIENCE" | jq -r '.value // empty') || token=""
+          if [ -z "$token" ]; then
+            echo "::warning::GitHub gave no OIDC token; no ticket is filed"
+            exit 0
+          fi
+          echo "::add-mask::$token"
+          code=$(curl -sS --max-time 120 -o answer.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $token" "${BOT_URL%/}/github/drift") || code=000
+          if [ "$code" = "200" ]; then
+            echo "bot: $(jq -c . answer.json 2>/dev/null || echo '(no JSON answer)')"
+          else
+            echo "::warning::the bot answered HTTP $code; no ticket is filed (401 = it refused the token, 404 = drift intake is off, 502 = Linear failed, 000 = not reachable)"
+          fi
+          rm -f answer.json
+
+      - name: Result
+        if: ${{ !cancelled() }}
+        env:
+          RESULT: ${{ steps.check.outputs.result }}
+        run: |
+          case "$RESULT" in
+            ok) echo "every live tag equals its version" ;;
+            drift) echo "::error::live tags differ from the versions, or apps could not be read; see the run summary"; exit 1 ;;
+            test) echo "::error::forced red run (test-red): nothing differs"; exit 1 ;;
+            *) echo "::error::the drift check did not run completely; see the run summary and the log"; exit 1 ;;
+          esac
